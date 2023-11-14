@@ -9,6 +9,8 @@ float  temp_acl_prom = 0.0, temp_acl = 0.0;
 float raw_temp = 0.0, raw_hum = 0.0;
 uint32_t Freq = 0;
 
+//Ezequiel es marico
+
 
 Adafruit_MPU6050 mpu;
 
