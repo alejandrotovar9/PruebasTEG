@@ -4,18 +4,17 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 
+unsigned long tiempo = 0.0, tiempo1 = 0.0, tiempo2 = 0.0;
 unsigned long contador = 0;
 float  temp_acl_prom = 0.0, temp_acl = 0.0;
 float raw_temp = 0.0, raw_hum = 0.0;
 uint32_t Freq = 0;
 
-//Ezequiel es marico
-
 
 Adafruit_MPU6050 mpu;
 
 void setup(void) {
-  Serial.begin(115200); //230400
+  Serial.begin(230400); //230400
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
 
@@ -115,6 +114,8 @@ void setup(void) {
   }
 
   /*Headers for CSV*/
+  Serial.print("Time");
+  Serial.print(",");
   Serial.print("ACLX");
   Serial.print(",");
   Serial.print("ACLY");
@@ -140,19 +141,31 @@ bool getCSV(int num_datos){
  int c = 0;
   for (int i = 0; i < num_datos; i++) {
     tomarData();
+    Serial.print(millis());
+    Serial.print(",");
     Serial.print(a.acceleration.x);
     Serial.print(",");
     Serial.print(a.acceleration.y);
     Serial.print(",");
     Serial.print(a.acceleration.z);
+    Serial.print(",");
     c++;
+    //Modificar para que tome la primera vez y no sea 0 hasta la medicion 100
     if(c = 100){
-      raw_temp, raw_hum = getRawValues();
+      //Al tomar estos datos se toma tiempo, por lo que los valores de aceleracion no son continuos
+      //Hay un salto de aproximadamente .012 segundos cada vez
+      getRawValues(&raw_temp, &raw_hum); //Actualizar valores de temp y hum
       Serial.print(raw_temp);
       Serial.print(",");
       Serial.print(raw_hum);
       Serial.print(",");
       c = 0;
+    }
+    else{
+      Serial.print(raw_temp);
+      Serial.print(",");
+      Serial.print(raw_hum);
+      Serial.print(",");
     }
     Serial.println("");
 }
@@ -204,10 +217,19 @@ void plotTempHum(){
 void loop() {
 
  //Obtener archivo CSV en puerto serial
+
+  tiempo1 = millis();
+ 
   getCSV(5000);
 
+  tiempo2 = millis();
+
   if(getCSV){
+    Serial.println("");
     Serial.println("Datos listos!");
+    Serial.print("Tiempo:");
+    tiempo = tiempo2 - tiempo1;
+    Serial.println(tiempo);
   }
   else{
     Serial.print("Problema en la adquisicion!");
@@ -221,16 +243,16 @@ void loop() {
 
 //----------------------GRAFICAR-------------------------------
 
-  //tomarData();
+  // tomarData();
 
-  //Graficar aceleraciones
-  //plotAcl();
+  // //Graficar aceleraciones
+  // plotAcl();
 
-  //Graficar temperatura y Humedad
-  //plotTempHum();
+  // //Graficar temperatura y Humedad
+  // plotTempHum();
  
-  //Aumento contador para el promedio de humedad y temperatura
-  //contador++;
+  // //Aumento contador para el promedio de humedad y temperatura
+  // contador++;
 
   //delay(500);
 }

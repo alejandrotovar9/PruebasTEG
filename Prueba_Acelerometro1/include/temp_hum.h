@@ -14,6 +14,6 @@
 //Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
 
 void setup_temp();
-float getRawValues();
+void getRawValues(float* temperature, float* humidity);
 void getValues();
 void printValues();

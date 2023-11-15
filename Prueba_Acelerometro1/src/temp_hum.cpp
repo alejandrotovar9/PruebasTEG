@@ -16,7 +16,7 @@ float hum_prom = 0.0;
 int cont = 0;
 
 void setup_temp() {
-    Serial.begin(115200);
+    Serial.begin(230400);
     while(!Serial);    // time to get serial running
     Serial.println(F("BME280 test"));
 
@@ -42,11 +42,20 @@ void setup_temp() {
     Serial.println();
 }
 
-float getRawValues(){
-    temp = bme.readTemperature();
-    hum = bme.readHumidity();
+/*In this code, the getRawValues function takes two float pointers as parameters. 
+Inside the function, we assign the values of temperatura and humedad to the memory locations 
+pointed to by these pointers using the dereference operator *.
 
-    return temp,hum;
+In main, we create two float variables temperature and humidity. 
+We pass the addresses of these variables (&temperature and &humidity) to the getRawValues function. 
+This allows the function to modify the values indirectly by writing to the memory locations 
+pointed to by the pointers.
+
+After the function call, we can access the updated values of temperature and humidity in main as usual.*/
+
+void getRawValues(float* temperature, float* humidity) {
+    *temperature = bme.readTemperature();
+    *humidity = bme.readHumidity();
 }
 
 void getValues(){
