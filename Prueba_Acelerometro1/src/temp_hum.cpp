@@ -16,10 +16,6 @@ float hum_prom = 0.0;
 int cont = 0;
 
 void setup_temp() {
-    Serial.begin(230400);
-    while(!Serial);    // time to get serial running
-    Serial.println(F("BME280 test"));
-
     unsigned status;
     
     // default settings

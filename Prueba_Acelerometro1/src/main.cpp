@@ -29,19 +29,6 @@ void setup(void) {
   }
   Serial.println("MPU6050 Found!");
 
-  // Freq = getCpuFrequencyMhz();
-  // Serial.print("CPU Freq = ");
-  // Serial.print(Freq);
-  // Serial.println(" MHz");
-  // Freq = getXtalFrequencyMhz();
-  // Serial.print("XTAL Freq = ");
-  // Serial.print(Freq);
-  // Serial.println(" MHz");
-  // Freq = getApbFrequency();
-  // Serial.print("APB Freq = ");
-  // Serial.print(Freq);
-  // Serial.println(" Hz");
-
   setup_temp();
 
   Wire.setClock(400000);
@@ -87,7 +74,10 @@ void setup(void) {
     break;
   }
 
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
+
+  //Introduce un retardo segun documentacion
+  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
   Serial.print("Filter bandwidth set to: ");
   switch (mpu.getFilterBandwidth()) {
   case MPU6050_BAND_260_HZ:
@@ -120,11 +110,11 @@ void setup(void) {
   Serial.print(",");
   Serial.print("ACLY");
   Serial.print(",");
-  Serial.print("ACLZ");
-  Serial.print(",");
-  Serial.print("Temp");
-  Serial.print(",");
-  Serial.println("Hum");
+  Serial.println("ACLZ");
+  // Serial.print(",");
+  // Serial.print("Temp");
+  // Serial.print(",");
+  // Serial.println("Hum");
 
   // delay(100);
 }
@@ -149,24 +139,24 @@ bool getCSV(int num_datos){
     Serial.print(",");
     Serial.print(a.acceleration.z);
     Serial.print(",");
-    c++;
     //Modificar para que tome la primera vez y no sea 0 hasta la medicion 100
-    if(c = 100){
-      //Al tomar estos datos se toma tiempo, por lo que los valores de aceleracion no son continuos
-      //Hay un salto de aproximadamente .012 segundos cada vez
-      getRawValues(&raw_temp, &raw_hum); //Actualizar valores de temp y hum
-      Serial.print(raw_temp);
-      Serial.print(",");
-      Serial.print(raw_hum);
-      Serial.print(",");
-      c = 0;
-    }
-    else{
-      Serial.print(raw_temp);
-      Serial.print(",");
-      Serial.print(raw_hum);
-      Serial.print(",");
-    }
+    // if(c = 100){
+    //   //Al tomar estos datos se toma tiempo, por lo que los valores de aceleracion no son continuos
+    //   //Hay un salto de aproximadamente .012 segundos cada vez
+    //   getRawValues(&raw_temp, &raw_hum); //Actualizar valores de temp y hum
+    //   Serial.print(raw_temp);
+    //   Serial.print(",");
+    //   Serial.print(raw_hum);
+    //   Serial.print(",");
+    //   c = 0;
+    // }
+    // else{
+    //   Serial.print(raw_temp);
+    //   Serial.print(",");
+    //   Serial.print(raw_hum);
+    //   Serial.print(",");
+    // }
+    // c++;
     Serial.println("");
 }
   return true;
@@ -183,6 +173,10 @@ void plotAcl(){
   Serial.print(">Acceleration Z:");
   Serial.println(a.acceleration.z);
 
+  //Para graficar valor de temperatura
+  Serial.print(">Temperatura del acelerometro:");
+  Serial.println(tem.temperature);
+
   // Serial.print(">Rotation X:");
   // Serial.println(g.gyro.x);
   // Serial.print(">Rotation Y:");
@@ -191,16 +185,10 @@ void plotAcl(){
   // Serial.println(g.gyro.z);
 }
 
-void plotTempHum(){
+void plotTempAcl(){
   //Tomo promedio de temperatura del acelerometro
   temp_acl = temp_acl + tem.temperature;
-
-  getValues(); //Obtener valores de temperatura y humedad del BME280 para posteriormente promediar
-
-  if(contador >= 100){
-    printValues(); //Imprimir valores de temperatura y humedad promedio
-
-    temp_acl_prom = temp_acl / contador;
+  temp_acl_prom = temp_acl / contador;
 
     //Para graficar valor de temperatura
     Serial.print(">Temperatura del acelerometro:");
@@ -209,6 +197,15 @@ void plotTempHum(){
     //Reiniciando variables
     temp_acl = 0.0;
     temp_acl_prom = 0;
+}
+
+//Arreglar
+void plotTempHum(){
+
+  getValues(); //Obtener valores de temperatura y humedad del BME280 para posteriormente promediar
+
+  if(contador >= 100){
+    printValues(); //Imprimir valores de temperatura y humedad promedio
     //Reiniciando contador
     contador = 0;
   }
@@ -218,41 +215,41 @@ void loop() {
 
  //Obtener archivo CSV en puerto serial
 
-  tiempo1 = millis();
+  // tiempo1 = millis();
  
-  getCSV(5000);
+  // getCSV(10000);
 
-  tiempo2 = millis();
+  // tiempo2 = millis();
 
-  if(getCSV){
-    Serial.println("");
-    Serial.println("Datos listos!");
-    Serial.print("Tiempo:");
-    tiempo = tiempo2 - tiempo1;
-    Serial.println(tiempo);
-  }
-  else{
-    Serial.print("Problema en la adquisicion!");
-  }
+  // if(getCSV){
+  //   Serial.println("");
+  //   //Serial.println("Datos listos!");
+  //   //Serial.print("Tiempo:");
+  //   tiempo = tiempo2 - tiempo1;
+  //   //Serial.println(tiempo);
+  // }
+  // else{
+  //   Serial.print("Problema en la adquisicion!");
+  // }
 
-  while(1){
-    Serial.println("Esperando reboot...");
-    delay(1000);
-  }
+  // while(1){
+  //   //Serial.println("Esperando reboot...");
+  //   delay(1000);
+  // }
 
 
 //----------------------GRAFICAR-------------------------------
 
-  // tomarData();
+  tomarData();
 
-  // //Graficar aceleraciones
-  // plotAcl();
+  //Graficar aceleraciones
+  plotAcl();
 
-  // //Graficar temperatura y Humedad
-  // plotTempHum();
+  //Graficar temperatura y Humedad
+  //plotTempHum();
  
-  // //Aumento contador para el promedio de humedad y temperatura
-  // contador++;
+  //Aumento contador para el promedio de humedad y temperatura
+  contador++;
 
   //delay(500);
 }
