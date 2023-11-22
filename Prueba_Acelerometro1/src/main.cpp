@@ -14,7 +14,7 @@ uint32_t Freq = 0;
 Adafruit_MPU6050 mpu;
 
 void setup(void) {
-  Serial.begin(230400); //230400
+  Serial.begin(115200); //230400
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
 
@@ -37,7 +37,7 @@ void setup(void) {
 
   Serial.println(mpu.getCycleRate());
 
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
   // MPU6050_RANGE_2_G = 0b00,  ///< +/- 2g (default value)
   // MPU6050_RANGE_4_G = 0b01,  ///< +/- 4g
   // MPU6050_RANGE_8_G = 0b10,  ///< +/- 8g
@@ -74,7 +74,8 @@ void setup(void) {
     break;
   }
 
-  mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
+  //Filtro Pasa Alto
+  mpu.setHighPassFilter(MPU6050_HIGHPASS_1_25_HZ);
 
   //Introduce un retardo segun documentacion
   mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
@@ -131,14 +132,14 @@ bool getCSV(int num_datos){
  int c = 0;
   for (int i = 0; i < num_datos; i++) {
     tomarData();
-    Serial.print(millis());
-    Serial.print(",");
-    Serial.print(a.acceleration.x);
-    Serial.print(",");
-    Serial.print(a.acceleration.y);
-    Serial.print(",");
-    Serial.print(a.acceleration.z);
-    Serial.print(",");
+    // Serial.print(millis());
+    // Serial.print(",");
+    // Serial.print(a.acceleration.x);
+    // Serial.print(",");
+    // Serial.print(a.acceleration.y);
+    // Serial.print(",");
+    // Serial.print(a.acceleration.z);
+    // Serial.print(",");
     //Modificar para que tome la primera vez y no sea 0 hasta la medicion 100
     // if(c = 100){
     //   //Al tomar estos datos se toma tiempo, por lo que los valores de aceleracion no son continuos
@@ -157,7 +158,7 @@ bool getCSV(int num_datos){
     //   Serial.print(",");
     // }
     // c++;
-    Serial.println("");
+    //Serial.println("");
 }
   return true;
 }
@@ -215,41 +216,41 @@ void loop() {
 
  //Obtener archivo CSV en puerto serial
 
-  // tiempo1 = millis();
+  tiempo1 = millis();
  
-  // getCSV(10000);
+  getCSV(5000);
 
-  // tiempo2 = millis();
+  tiempo2 = millis();
 
-  // if(getCSV){
-  //   Serial.println("");
-  //   //Serial.println("Datos listos!");
-  //   //Serial.print("Tiempo:");
-  //   tiempo = tiempo2 - tiempo1;
-  //   //Serial.println(tiempo);
-  // }
-  // else{
-  //   Serial.print("Problema en la adquisicion!");
-  // }
+  if(getCSV){
+    Serial.println("");
+    Serial.println("Datos listos!");
+    Serial.print("Tiempo:");
+    tiempo = tiempo2 - tiempo1;
+    Serial.println(tiempo);
+  }
+  else{
+    Serial.print("Problema en la adquisicion!");
+  }
 
-  // while(1){
-  //   //Serial.println("Esperando reboot...");
-  //   delay(1000);
-  // }
+  while(1){
+    //Serial.println("Esperando reboot...");
+    delay(1000);
+  }
 
 
 //----------------------GRAFICAR-------------------------------
 
-  tomarData();
+  // tomarData();
 
-  //Graficar aceleraciones
-  plotAcl();
+  // //Graficar aceleraciones
+  // plotAcl();
 
-  //Graficar temperatura y Humedad
-  //plotTempHum();
+  // //Graficar temperatura y Humedad
+  // //plotTempHum();
  
-  //Aumento contador para el promedio de humedad y temperatura
-  contador++;
+  // //Aumento contador para el promedio de humedad y temperatura
+  // contador++;
 
   //delay(500);
 }
