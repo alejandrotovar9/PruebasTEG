@@ -67,6 +67,14 @@ void readBMETask(void *parameter) {
   }
 }
 
+void EnableInt(void *pvParameters){
+      Wire.beginTransmission(0x68);  // Initialize the Tx buffer
+      Wire.write(0x38);           // Put slave register address in Tx buffer
+      Wire.write(0x01);                 // Put data in Tx buffer
+      Wire.endTransmission();           // Send the Tx buffer
+      //Interrupt activado
+}
+
 //MPU-6050 da los valores en enteros de 16 bits
 //Valores RAW
 int16_t AcX, AcY, AcZ, GyX, GyY, GyZ;
@@ -106,6 +114,9 @@ void leerDatosACL(void *pvParameters){
   // }
   //Leer los valores del Acelerometro de la IMU
   while(true){
+
+      //EnableInt(); //Activamos interrupcion
+
       mpu.getEvent(&a, &g, &tem);
 
       ACLData aclData; //Se define estructura a ser llenada
