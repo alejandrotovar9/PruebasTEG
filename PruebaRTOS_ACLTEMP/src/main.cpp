@@ -16,6 +16,7 @@ int ledpin= 26;
 // Task handle
 TaskHandle_t xHandle_readBMETask = NULL;
 TaskHandle_t xHandle_receiveDataTask = NULL;
+TaskHandle_t xHandle_crearBuffer = NULL;
 TaskHandle_t xHandle_recibirDatosACL = NULL;
 TaskHandle_t xHandle_leerDatosACL = NULL;
 
@@ -24,6 +25,7 @@ TaskHandle_t xHandle_leerDatosACL = NULL;
 QueueHandle_t xQueue;
 QueueHandle_t dataQueue;
 QueueHandle_t aclQueue;
+QueueHandle_t bufferQueue;
 
 //Variable global
 sensors_event_t a, g, tem;
@@ -43,11 +45,12 @@ struct BMEData {
 struct ACLData {
   float AclX;
   float AclY;
-  float AClZ;
+  float AclZ;
 };
 
 //Variables globales
 int var = 0;
+int k = 0; //Contador para la cantidad de datos a guardar en el array
 
 //Leer BME
 void readBMETask(void *parameter) {
@@ -98,7 +101,7 @@ int16_t AcX, AcY, AcZ, GyX, GyY, GyZ;
 //       //Se llena estructura con datos nuevos 
 //       aclData.AclX = (Wire.read()<<8|Wire.read())/A_R; //Cada valor ocupa 2 registros
 //       aclData.AclY = (Wire.read()<<8|Wire.read())/A_R;
-//       aclData.AClZ = (Wire.read()<<8|Wire.read())/A_R;
+//       aclData.AclZ = (Wire.read()<<8|Wire.read())/A_R;
 
 //       //Envia los datos a la cola dataQueue
 //       xQueueSend(aclQueue, &aclData, portMAX_DELAY);
@@ -124,10 +127,85 @@ void leerDatosACL(void *pvParameters){
       //Se llena estructura con datos nuevos 
       aclData.AclX = a.acceleration.x; 
       aclData.AclY = a.acceleration.y;
-      aclData.AClZ = a.acceleration.z;
+      aclData.AclZ = a.acceleration.z;
 
       //Envia los datos a la cola dataQueue
       xQueueSend(aclQueue, &aclData, portMAX_DELAY);
+
+      Serial.println("Se envio la cola con datos...");
+  }
+}
+
+//Crear tarea para tomar cierta cantidad de datos (5000 por ej) y luego terminar el programa
+//Para evitar el delay al llenar la SD mientras se adquieren los datos se puede usar un buffer temporal
+//Luego de guardan los datos del buffer en SD y esto puede ejecutarse en el nucleo 2 del ESP
+/*
+Ejemplo:
+
+Que tipo de datos es el que mas se ajusta?
+
+struct BufferACL {
+  array X;
+  array Y;
+  array Z;
+};
+
+Así o los lleno de ceros por el tamaño deseado (5000)
+X = [];
+Y = [];
+Z = [];
+
+Cuando recibo los datos los voy guardando en el buffer:
+      BufferACL.X[k]= a.acceleration.x; 
+      BufferACL.Y[k]= a.acceleration.y;
+      BufferACL.Z[k]= a.acceleration.z;
+      k++; aumento la posicion del vector en la cual voy a guardar el dato
+
+Obtendriamos:
+BufferACL.X = [1.05, 0.99, 0.95, 0.94, ...]
+BufferACL.Y = [0.05, 0.07, 0.10, 0.09, ...]
+BufferACL.Z = [0.50, 0.45, 0.55, 0.42, ...]
+
+Luego en otra tarea accedo a esta estructura y guardo los datos en SD con el formato CSV deseado.
+Ejecutando esta tarea en otro nucleo sin afectar el tiempo de muestreo.
+Luego limpio el buffer y lo vuelvo a llenar y as sucesivamente.
+
+Preguntas:
+-Cual es el mejor tipo de datos a usar?
+-Esto se guarda en RAM? Es decir, la estructura de datos a actualizarse, debe ser...
+-Cuanto tiempo tarda esto en ejecutarse? El llenado de la estructura no debería tomar mucho tiempo, y 
+el guardado en SD al estarse ejecutando en el otro nucleo no debería ser problema.
+*/
+
+struct BufferACL{
+  float X[5000];
+  float Y[5000];
+  float Z[5000];
+};
+
+void crearBuffer(void *pvParameters){
+  while(true){
+
+    //Defino las estructuras a utilizarse
+    BufferACL buffer;
+    ACLData datos_acl;
+
+    //Recibo los datos de la cola y los guardo en la estructura creada
+    xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY);
+
+    if(k<=5000){
+      buffer.X[k] = datos_acl.AclX;
+      buffer.Y[k] = datos_acl.AclY;
+      buffer.Z[k] = datos_acl.AclZ;
+    }
+    else{
+      Serial.println("Se termino de llenar la estructura con exito!!!");
+      //Se elimina la tarea
+      vTaskDelete(xHandle_crearBuffer);
+    }
+
+    //Se aumenta el contador k
+    k++; 
   }
 }
 
@@ -145,7 +223,7 @@ void recibirDatosACL(void *pvParameters){
     Serial.println(aclData2.AclY);
     // //Serial.print(",");
     // Serial.print(">Acceleration Z:");
-    // Serial.println(aclData2.AClZ);
+    // Serial.println(aclData2.AclZ);
   }
 }
 
@@ -195,6 +273,7 @@ void setup() {
   //Creacion de las colas
   dataQueue = xQueueCreate(2, sizeof(BMEData));
   aclQueue = xQueueCreate(3, sizeof(ACLData));
+  bufferQueue = xQueueCreate(3, sizeof(ACLData));
 
   // Initialize the BME280 sensor
   while(!bme.begin(0x76)) {
@@ -229,9 +308,11 @@ void setup() {
     //Tareas a ejecutarse en el Nucleo 1
     //xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 1);
     //xTaskCreatePinnedToCore(receiveDataTask, "receiveDataTask", 1024*2, NULL, 1, &xHandle_receiveDataTask, 1);
+   
     //Tareas a ejecutarse en el Nucleo 0
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
-    xTaskCreatePinnedToCore(recibirDatosACL, "recibirDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
+    xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
+    //xTaskCreatePinnedToCore(recibirDatosACL, "recibirDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
 }
 
 void loop() {
