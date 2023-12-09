@@ -214,7 +214,6 @@ void crearBuffer(void *pvParameters){
       bufferY[k] = datos_acl.AclY;
       bufferZ[k] = datos_acl.AclZ;
       }
-
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
         for(int w = 0; w < 20; w++){
