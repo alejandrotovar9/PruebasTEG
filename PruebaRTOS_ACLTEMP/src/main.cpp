@@ -6,7 +6,7 @@
 #include <Wire.h>
 #include <Arduino.h>
 
-#define NUM_DATOS 5000
+#define NUM_DATOS 1000
 
 //Sensor objects
 Adafruit_BME280 bme;
@@ -132,16 +132,19 @@ void leerDatosACL(void *pvParameters){
 
       //Envia los datos a la cola dataQueue
       if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
-        Serial.println("Se envio la cola con datos...");
+        //Serial.println("Se envio la cola con datos...");
+        vTaskResume(xHandle_crearBuffer);
       }
       else{
         Serial.println("No se envio la cola...");
       }
 
+      //vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
+
       //Para ejecutar una sola vez mas para ver contenidos
-      if(k<=5001){
-        vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
-      }
+      // if(k<=5001){
+      //   vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
+      // }
   }
 }
 
@@ -194,10 +197,12 @@ struct BufferACL{
 };
 
 //Intento de buffers
-uint8_t buffer_timestamp[5000] = {};
-float bufferX[5000] = { };
-float bufferY[5000] = { };
-float bufferZ[5000] = { };
+uint8_t buffer_timestamp[NUM_DATOS] = {};
+float bufferX[NUM_DATOS] = { };
+float bufferY[NUM_DATOS] = { };
+float bufferZ[NUM_DATOS] = { };
+
+
 
 void crearBuffer(void *pvParameters){
   while(true){
@@ -208,7 +213,7 @@ void crearBuffer(void *pvParameters){
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if(k<=5000){
+      if(k<=NUM_DATOS){
       buffer_timestamp[k] = millis();
       bufferX[k] = datos_acl.AclX;
       bufferY[k] = datos_acl.AclY;
@@ -216,7 +221,10 @@ void crearBuffer(void *pvParameters){
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
-        for(int w = 0; w < 20; w++){
+
+        //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
+
+        for(int w = 0; w < 30; w++){
           printf("Valores de tiempo: %u, X: %f \n", buffer_timestamp[w], bufferX[w]);
         }
         //vTaskDelete(xHandle_crearBuffer);
