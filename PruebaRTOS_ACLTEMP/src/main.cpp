@@ -5,8 +5,9 @@
 #include <freertos/queue.h>
 #include <Wire.h>
 #include <Arduino.h>
+#include <esp32-hal-log.h>
 
-#define NUM_DATOS 1000
+#define NUM_DATOS 5000
 
 //Sensor objects
 Adafruit_BME280 bme;
@@ -21,7 +22,7 @@ TaskHandle_t xHandle_receiveDataTask = NULL;
 TaskHandle_t xHandle_crearBuffer = NULL;
 TaskHandle_t xHandle_recibirDatosACL = NULL;
 TaskHandle_t xHandle_leerDatosACL = NULL;
-
+TaskHandle_t xHandle_blink = NULL;
 
 //Handle de la Cola
 QueueHandle_t xQueue;
@@ -31,11 +32,16 @@ QueueHandle_t bufferQueue;
 
 //Variable global
 sensors_event_t a, g, tem;
-int num_datos = 5000;
 
-// //Pines para I2C
-// #define I2C_SDA  
-// #define I2C_SCL  
+//Intento de buffers
+uint8_t buffer_timestamp[NUM_DATOS - 1] = {};
+float bufferX[NUM_DATOS - 1] = { };
+float bufferY[NUM_DATOS - 1] = { };
+float bufferZ[NUM_DATOS - 1] = { };
+
+uint8_t timer1 = 0;
+uint8_t timer2 = 0;
+uint8_t tiempo = 0;
 
 //Estructura de 2 flotantes para temp&hum
 struct BMEData {
@@ -110,8 +116,6 @@ int16_t AcX, AcY, AcZ, GyX, GyY, GyZ;
 //   }
 // }
 
-//Contador
-int contador = 0;
 
 void leerDatosACL(void *pvParameters){
   // /* Get new sensor events with the readings */
@@ -154,36 +158,12 @@ void leerDatosACL(void *pvParameters){
 /*
 Ejemplo:
 
-Que tipo de datos es el que mas se ajusta?
-
-struct BufferACL {
-  array X;
-  array Y;
-  array Z;
-};
-
-Así o los lleno de ceros por el tamaño deseado (5000)
-X = [];
-Y = [];
-Z = [];
-
-Cuando recibo los datos los voy guardando en el buffer:
-      BufferACL.X[k]= a.acceleration.x; 
-      BufferACL.Y[k]= a.acceleration.y;
-      BufferACL.Z[k]= a.acceleration.z;
-      k++; aumento la posicion del vector en la cual voy a guardar el dato
-
-Obtendriamos:
-BufferACL.X = [1.05, 0.99, 0.95, 0.94, ...]
-BufferACL.Y = [0.05, 0.07, 0.10, 0.09, ...]
-BufferACL.Z = [0.50, 0.45, 0.55, 0.42, ...]
-
 Luego en otra tarea accedo a esta estructura y guardo los datos en SD con el formato CSV deseado.
 Ejecutando esta tarea en otro nucleo sin afectar el tiempo de muestreo.
 Luego limpio el buffer y lo vuelvo a llenar y as sucesivamente.
 
 Preguntas:
--Cual es el mejor tipo de datos a usar?
+-Cual es el mejor tipo de datos a usar? Array de flotantes
 -Esto se guarda en RAM? Es decir, la estructura de datos a actualizarse, debe ser...
 -Cuanto tiempo tarda esto en ejecutarse? El llenado de la estructura no debería tomar mucho tiempo, y 
 el guardado en SD al estarse ejecutando en el otro nucleo no debería ser problema.
@@ -196,14 +176,6 @@ struct BufferACL{
   float Z[5000];
 };
 
-//Intento de buffers
-uint8_t buffer_timestamp[NUM_DATOS] = {};
-float bufferX[NUM_DATOS] = { };
-float bufferY[NUM_DATOS] = { };
-float bufferZ[NUM_DATOS] = { };
-
-
-
 void crearBuffer(void *pvParameters){
   while(true){
 
@@ -213,19 +185,27 @@ void crearBuffer(void *pvParameters){
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if(k<=NUM_DATOS){
-      buffer_timestamp[k] = millis();
-      bufferX[k] = datos_acl.AclX;
-      bufferY[k] = datos_acl.AclY;
-      bufferZ[k] = datos_acl.AclZ;
+      if(k < NUM_DATOS){
+        buffer_timestamp[k] = millis();
+        bufferX[k] = datos_acl.AclX;
+        bufferY[k] = datos_acl.AclY;
+        bufferZ[k] = datos_acl.AclZ;
+
+        k++; 
+        printf("k: %u \n", k);
+        //Serial.println(k);
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
+        printf("Valor final de k: %u \n", k);
+
+        //Inicia el parpadeo del LED en el otro nucleo
+        vTaskResume(xHandle_blink);
 
         //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
 
-        for(int w = 0; w < 30; w++){
-          printf("Valores de tiempo: %u, X: %f \n", buffer_timestamp[w], bufferX[w]);
+        for(int w = 0; w < 50; w++){
+          printf("t: %u, X: %f, Y: %f, Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
         }
         //vTaskDelete(xHandle_crearBuffer);
       }
@@ -234,13 +214,23 @@ void crearBuffer(void *pvParameters){
       Serial.println("No se recibio la cola correctamente...");
     };
 
-    k++; 
-    Serial.print("k: ");
-    Serial.println(k);
-
     //Se suspende la tarea para esperar la toma de datos
     vTaskSuspend(xHandle_crearBuffer);
+    //printf("BUFFER TASK: ESTOY AQUI TODAVIA \n");
+  }
+}
 
+void guardarSD(void *pvParameters){
+  
+}
+
+void blink(void *pvParameters){
+  pinMode(BUILTIN_LED, OUTPUT);
+  while(1) {
+      digitalWrite(BUILTIN_LED, 0);
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      digitalWrite(BUILTIN_LED, 1);
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -347,6 +337,10 @@ void setup() {
     //Tareas a ejecutarse en el Nucleo 0
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
     xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
+    //Encender LED
+    xTaskCreatePinnedToCore(blink, "blink", 1024*2, NULL, 2, &xHandle_blink, 1);
+    vTaskSuspend(xHandle_blink);
+
     //xTaskCreatePinnedToCore(recibirDatosACL, "recibirDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
 }
 
