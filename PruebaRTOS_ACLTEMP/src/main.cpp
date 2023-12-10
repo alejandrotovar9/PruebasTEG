@@ -1,228 +1,38 @@
-#include <Adafruit_BME280.h>
-#include <Adafruit_MPU6050.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <Wire.h>
 #include <Arduino.h>
-#include <esp32-hal-log.h>
+#include <accl.h>
+#include <temp_hum.h>
 
-#define NUM_DATOS 5000
 
-//Sensor objects
+//Creando objeto de clase BME280
 Adafruit_BME280 bme;
 Adafruit_MPU6050 mpu;
-
-//Definicion de pines a utilizar
-int ledpin= 26;
-
-// Task handle
-TaskHandle_t xHandle_readBMETask = NULL;
-TaskHandle_t xHandle_receiveDataTask = NULL;
-TaskHandle_t xHandle_crearBuffer = NULL;
-TaskHandle_t xHandle_recibirDatosACL = NULL;
-TaskHandle_t xHandle_leerDatosACL = NULL;
-TaskHandle_t xHandle_blink = NULL;
-
-//Handle de la Cola
-QueueHandle_t xQueue;
-QueueHandle_t dataQueue;
-QueueHandle_t aclQueue;
-QueueHandle_t bufferQueue;
 
 //Variable global
 sensors_event_t a, g, tem;
 
 //Intento de buffers
-uint8_t buffer_timestamp[NUM_DATOS - 1] = {};
-float bufferX[NUM_DATOS - 1] = { };
-float bufferY[NUM_DATOS - 1] = { };
-float bufferZ[NUM_DATOS - 1] = { };
+uint8_t buffer_timestamp[NUM_DATOS - 1];
+float bufferX[NUM_DATOS - 1];
+float bufferY[NUM_DATOS - 1];
+float bufferZ[NUM_DATOS - 1];
 
-uint8_t timer1 = 0;
-uint8_t timer2 = 0;
-uint8_t tiempo = 0;
+//Handle de la Cola
+QueueHandle_t xQueue;
+QueueHandle_t aclQueue;
+QueueHandle_t bufferQueue;
+QueueHandle_t dataQueue;
 
-//Estructura de 2 flotantes para temp&hum
-struct BMEData {
-  float temperature;
-  float humidity;
-};
-
-//Estructura de 3 flotantes para cada eje del accl
-struct ACLData {
-  float AclX;
-  float AclY;
-  float AclZ;
-};
-
-//Variables globales
-int var = 0;
-int k = 0; //Contador para la cantidad de datos a guardar en el array
-
-//Leer BME
-void readBMETask(void *parameter) {
-  while (true) {
-    //Crea una estructura de tipo BMEData
-    BMEData data1;
-
-    //Lee los valores del sensor y los guarda en la estructura
-    data1.humidity = bme.readHumidity();
-    data1.temperature = bme.readTemperature();
-    
-    //Envia los datos a la cola dataQueue
-    xQueueSend(dataQueue, &data1, portMAX_DELAY);
-
-    //Delay for 1 second
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-  }
-}
-
-void EnableInt(void *pvParameters){
-      Wire.beginTransmission(0x68);  // Initialize the Tx buffer
-      Wire.write(0x38);           // Put slave register address in Tx buffer
-      Wire.write(0x01);                 // Put data in Tx buffer
-      Wire.endTransmission();           // Send the Tx buffer
-      //Interrupt activado
-}
-
-//MPU-6050 da los valores en enteros de 16 bits
-//Valores RAW
-int16_t AcX, AcY, AcZ, GyX, GyY, GyZ;
-//Ratios de conversion
-#define A_R 16384.0 // 32768/2
-
-// void leerDatosACL(void *pvParameters){
-//   // /* Get new sensor events with the readings */
-//      mpu.getEvent(&a, &g, &tem);
-//   // }
-//   //Leer los valores del Acelerometro de la IMU
-//   while(true){
-
-//       ACLData aclData; //Se define estructura a ser llenada
-
-//       Wire.beginTransmission(0x68);
-//       Wire.write(0x3B); //Pedir el registro 0x3B - corresponde al AcX
-//       Wire.endTransmission(false);
-//       Wire.requestFrom(0x68 ,6, true);   //A partir del 0x3B, se piden 6 registros
-
-//       //Se llena estructura con datos nuevos 
-//       aclData.AclX = (Wire.read()<<8|Wire.read())/A_R; //Cada valor ocupa 2 registros
-//       aclData.AclY = (Wire.read()<<8|Wire.read())/A_R;
-//       aclData.AclZ = (Wire.read()<<8|Wire.read())/A_R;
-
-//       //Envia los datos a la cola dataQueue
-//       xQueueSend(aclQueue, &aclData, portMAX_DELAY);
-//   }
-// }
-
-
-void leerDatosACL(void *pvParameters){
-  // /* Get new sensor events with the readings */
-
-  //Leer los valores del Acelerometro de la IMU
-  while(true){
-
-      //EnableInt(); //Activamos interrupcion
-
-      mpu.getEvent(&a, &g, &tem);
-
-      ACLData aclData; //Estructura a ser llenada con 3 ejes
-
-      //Se llena estructura con datos nuevos 
-      aclData.AclX = a.acceleration.x; 
-      aclData.AclY = a.acceleration.y;
-      aclData.AclZ = a.acceleration.z;
-
-      //Envia los datos a la cola dataQueue
-      if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
-        //Serial.println("Se envio la cola con datos...");
-        vTaskResume(xHandle_crearBuffer);
-      }
-      else{
-        Serial.println("No se envio la cola...");
-      }
-
-      //vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
-
-      //Para ejecutar una sola vez mas para ver contenidos
-      // if(k<=5001){
-      //   vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
-      // }
-  }
-}
-
-//Crear tarea para tomar cierta cantidad de datos (5000 por ej) y luego terminar el programa
-//Para evitar el delay al llenar la SD mientras se adquieren los datos se puede usar un buffer temporal
-//Luego de guardan los datos del buffer en SD y esto puede ejecutarse en el nucleo 2 del ESP
-/*
-Ejemplo:
-
-Luego en otra tarea accedo a esta estructura y guardo los datos en SD con el formato CSV deseado.
-Ejecutando esta tarea en otro nucleo sin afectar el tiempo de muestreo.
-Luego limpio el buffer y lo vuelvo a llenar y as sucesivamente.
-
-Preguntas:
--Cual es el mejor tipo de datos a usar? Array de flotantes
--Esto se guarda en RAM? Es decir, la estructura de datos a actualizarse, debe ser...
--Cuanto tiempo tarda esto en ejecutarse? El llenado de la estructura no debería tomar mucho tiempo, y 
-el guardado en SD al estarse ejecutando en el otro nucleo no debería ser problema.
-*/
-
-//Estructura que contiene 3 arreglos de 5000 flotantes
-struct BufferACL{
-  float X[5000];
-  float Y[5000];
-  float Z[5000];
-};
-
-void crearBuffer(void *pvParameters){
-  while(true){
-
-    //Buffer a llenar
-    //BufferACL buffer;
-    ACLData datos_acl;
-
-    //Recibo los datos de la cola y los guardo en la estructura creada
-    if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if(k < NUM_DATOS){
-        buffer_timestamp[k] = millis();
-        bufferX[k] = datos_acl.AclX;
-        bufferY[k] = datos_acl.AclY;
-        bufferZ[k] = datos_acl.AclZ;
-
-        k++; 
-        printf("k: %u \n", k);
-        //Serial.println(k);
-      }
-      else{
-        Serial.println("Se termino de llenar la estructura con exito!!!");
-        printf("Valor final de k: %u \n", k);
-
-        //Inicia el parpadeo del LED en el otro nucleo
-        vTaskResume(xHandle_blink);
-
-        //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
-
-        for(int w = 0; w < 50; w++){
-          printf("t: %u, X: %f, Y: %f, Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
-        }
-        //vTaskDelete(xHandle_crearBuffer);
-      }
-    }
-    else{
-      Serial.println("No se recibio la cola correctamente...");
-    };
-
-    //Se suspende la tarea para esperar la toma de datos
-    vTaskSuspend(xHandle_crearBuffer);
-    //printf("BUFFER TASK: ESTOY AQUI TODAVIA \n");
-  }
-}
-
-void guardarSD(void *pvParameters){
-  
-}
+//Handle de tareas
+TaskHandle_t xHandle_crearBuffer;
+TaskHandle_t xHandle_recibirDatosACL;
+TaskHandle_t xHandle_leerDatosACL;
+TaskHandle_t xHandle_blink;
+TaskHandle_t xHandle_readBMETask;
+TaskHandle_t xHandle_receiveDataTask;
 
 void blink(void *pvParameters){
   pinMode(BUILTIN_LED, OUTPUT);
@@ -231,43 +41,6 @@ void blink(void *pvParameters){
       vTaskDelay(1000 / portTICK_PERIOD_MS);
       digitalWrite(BUILTIN_LED, 1);
       vTaskDelay(1000 / portTICK_PERIOD_MS);
-  }
-}
-
-//Recibir datos del acelerometro
-void recibirDatosACL(void *pvParameters){
-  while(true){
-        // //Para graficar con teleplot
-    ACLData aclData2;
-    xQueueReceive(aclQueue, &aclData2, portMAX_DELAY);
-
-    Serial.print(">Acceleration X:");
-    Serial.println(aclData2.AclX);
-    Serial.println(",");
-    Serial.print(">Acceleration Y:");
-    Serial.println(aclData2.AclY);
-    // //Serial.print(",");
-    // Serial.print(">Acceleration Z:");
-    // Serial.println(aclData2.AclZ);
-  }
-}
-
-//Tarea de recepcion de datos
-void receiveDataTask(void *parameter) {
-  while (true) {
-    //Recibe la data de la cola y la guarda en una nueva estructura
-    BMEData data;
-    xQueueReceive(dataQueue, &data, portMAX_DELAY);
-
-    // Print the data
-    Serial.print("Temperatura: ");
-    Serial.print(data.temperature);
-    Serial.print(" *C\t");
-    Serial.print("Humedad: ");
-    Serial.print(data.humidity);
-    Serial.println("%\t");
-    // Serial.print("Presion: ");
-    // Serial.println(data.pressure);
   }
 }
 
@@ -290,7 +63,7 @@ void receiveDataTask(void *parameter) {
 
 void setup() {
 
-  //se configura puerto serial
+  //Configuracion de puerto serial
   vTaskDelay(1000 / portTICK_PERIOD_MS);
   Serial.begin(115200);
   vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -298,52 +71,30 @@ void setup() {
   //Creacion de las colas
   dataQueue = xQueueCreate(2, sizeof(BMEData));
   aclQueue = xQueueCreate(3, sizeof(ACLData));
-  bufferQueue = xQueueCreate(3, sizeof(ACLData));
+  bufferQueue = xQueueCreate(3, sizeof(ACLData)); //No se esta usando aun
 
-  // // Initialize the BME280 sensor
-  // while(!bme.begin(0x76)) {
-  //   Serial.println("Could not find BME280 sensor!");
-  //   while (1){
-  //     delay(10);
-  //   }
-  // }
-
-  Serial.println("Adafruit MPU6050 test!");
-
-  //Try to initialize!
-  if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1) {
-      delay(10);
-    }
-  }
-  Serial.println("MPU6050 Found!");
-
-  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-   //Filtro Pasa Alto
-  mpu.setHighPassFilter(MPU6050_HIGHPASS_DISABLE);
-  //Introduce un retardo segun documentacion
-  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
-  mpu.setSampleRateDivisor(0);
+  //Inicializacion de sensores
+  //temp_hum_setup();
+  accl_setup();
    
+  //Reloj del I2C 
   Wire.setClock(400000);
 
   //Creacion de tareas
-    //Tareas a ejecutarse en el Nucleo 1
+
+    //Tareas a ejecutarse en el Nucleo 1 (lectura de hum y temp)
     //xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 1);
     //xTaskCreatePinnedToCore(receiveDataTask, "receiveDataTask", 1024*2, NULL, 1, &xHandle_receiveDataTask, 1);
    
-    //Tareas a ejecutarse en el Nucleo 0
+    //Tareas a ejecutarse en el Nucleo 0 (lectura de accl)
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
     xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
-    //Encender LED
+
+    //Encender LED en nucleo 1
     xTaskCreatePinnedToCore(blink, "blink", 1024*2, NULL, 2, &xHandle_blink, 1);
     vTaskSuspend(xHandle_blink);
-
-    //xTaskCreatePinnedToCore(recibirDatosACL, "recibirDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
 }
 
 void loop() {
-  // Do nothing
+  //No hacer nada
 }
