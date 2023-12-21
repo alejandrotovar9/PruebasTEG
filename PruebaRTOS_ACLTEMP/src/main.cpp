@@ -44,22 +44,6 @@ void blink(void *pvParameters){
   }
 }
 
-// void wifiInit() {
-//     Serial.print("Conectándose a ");
-//     Serial.println(ssid);
-
-//     WiFi.begin(ssid, password);
-
-//     while (WiFi.status() != WL_CONNECTED) {
-//       Serial.print(".");
-//         vTaskDelay(500 / portTICK_PERIOD_MS);  
-//     }
-//     Serial.println("");
-//     Serial.println("Conectado a WiFi");
-//     Serial.println("Dirección IP: ");
-//     Serial.println(WiFi.localIP());
-//   }
-
 
 void setup() {
 

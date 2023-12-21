@@ -13,6 +13,13 @@ struct ACLData {
   float AclZ;
 };
 
+struct BufferACL {
+  uint8_t buf_tstamp[NUM_DATOS - 1];
+  float bufX[NUM_DATOS - 1];
+  float bufY[NUM_DATOS - 1];
+  float bufZ[NUM_DATOS - 1];
+};
+
 // // Task handle
 // extern TaskHandle_t xHandle_crearBuffer = NULL;
 // extern TaskHandle_t xHandle_recibirDatosACL = NULL;

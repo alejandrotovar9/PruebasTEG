@@ -61,9 +61,11 @@ void leerDatosACL(void *pvParameters){
       aclData.AclY = a.acceleration.y;
       aclData.AclZ = a.acceleration.z;
 
+      Serial.println("Se lleno estructura");
+
       //Envia los datos a la cola dataQueue
       if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
-        //Serial.println("Se envio la cola con datos...");
+        Serial.println("Se envio la cola con datos...");
         vTaskResume(xHandle_crearBuffer);
       }
       else{
@@ -84,16 +86,28 @@ void crearBuffer(void *pvParameters){
   while(true){
 
     //Buffer a llenar
-    //BufferACL buffer;
+    BufferACL buffer;
     ACLData datos_acl;
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
       if(k < NUM_DATOS){
+        
+        // buffer.buf_tstamp[k] = millis();
+        // buffer.bufX[k] = datos_acl.AclX;
+        // buffer.bufY[k] = datos_acl.AclX;
+        // buffer.bufZ[k] = datos_acl.AclX;
+        //SI SE USA ESTRUCTURA NO SE PUEDEN VISUALIZAR VALORES, SE ACTIVA WDT
+        //PARECE QUE NO SE ESTA LLENANDO DE DATOS CADA ARRAY DE LA STRUCT
+
         buffer_timestamp[k] = millis();
         bufferX[k] = datos_acl.AclX;
         bufferY[k] = datos_acl.AclY;
         bufferZ[k] = datos_acl.AclZ;
+
+        // printf(">ACLX: %f \n", bufferX[k]);
+        // printf(">ACLY: %f \n", bufferY[k]);
+        // printf(">ACLZ: %f \n", bufferX[k]);
 
         k++; 
         printf("k: %u \n", k);
@@ -106,12 +120,13 @@ void crearBuffer(void *pvParameters){
         //Inicia el parpadeo del LED en el otro nucleo
         vTaskResume(xHandle_blink);
 
-        //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
-
         for(int w = 0; w < 50; w++){
           printf("t: %u, X: %f, Y: %f, Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
         }
-        //vTaskDelete(xHandle_crearBuffer);
+
+        xQueueSend(bufferQueue, &buffer, portMAX_DELAY);
+
+        vTaskDelete(xHandle_crearBuffer);
       }
     }
     else{

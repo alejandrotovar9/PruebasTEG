@@ -6,5 +6,5 @@
 
 const int CS = 5;
 
-bool copiarCSVenSD (int num_datos);
+void copiarCSVenSD(void *pvParameters);
 void setup_SD();
