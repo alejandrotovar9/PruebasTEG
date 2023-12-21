@@ -20,15 +20,18 @@ struct BufferACL {
   float bufZ[NUM_DATOS - 1];
 };
 
-// // Task handle
-// extern TaskHandle_t xHandle_crearBuffer = NULL;
-// extern TaskHandle_t xHandle_recibirDatosACL = NULL;
-// extern TaskHandle_t xHandle_leerDatosACL = NULL;
-// extern TaskHandle_t xHandle_blink = NULL;
+extern Adafruit_MPU6050 mpu;
 
-// //Handle de la Cola
-// extern QueueHandle_t aclQueue;
-// extern QueueHandle_t bufferQueue;
+// Task handle
+extern TaskHandle_t xHandle_crearBuffer;
+extern TaskHandle_t xHandle_recibirDatosACL;
+extern TaskHandle_t xHandle_leerDatosACL;
+extern TaskHandle_t xHandle_blink;
+
+//Handle de la Cola
+extern QueueHandle_t xQueue; //OJO CON ESTO, HAY QUE INCLUIRLO EN TODOS LOS .H
+extern QueueHandle_t aclQueue;
+extern QueueHandle_t bufferQueue;
 
 //Funciones
 void leerDatosACL(void *pvParameters);

@@ -11,8 +11,8 @@
 Adafruit_BME280 bme;
 Adafruit_MPU6050 mpu;
 
-//Variable global
-sensors_event_t a, g, tem;
+// //Variable global
+// sensors_event_t a, g, tem;
 
 //Intento de buffers
 uint8_t buffer_timestamp[NUM_DATOS - 1];
@@ -63,6 +63,7 @@ void setup() {
    
   //Reloj del I2C 
   Wire.setClock(400000);
+  Serial.println("Se ajusto el reloj.");
 
   //Creacion de tareas
 
@@ -77,6 +78,7 @@ void setup() {
     //Encender LED en nucleo 1
     xTaskCreatePinnedToCore(blink, "blink", 1024*2, NULL, 2, &xHandle_blink, 1);
     vTaskSuspend(xHandle_blink);
+    Serial.println("PRUEBA");
 }
 
 void loop() {

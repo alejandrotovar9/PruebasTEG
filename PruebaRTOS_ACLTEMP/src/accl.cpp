@@ -1,17 +1,7 @@
 #include <accl.h>
 
-extern TaskHandle_t xHandle_crearBuffer;
-extern TaskHandle_t xHandle_recibirDatosACL;
-extern TaskHandle_t xHandle_leerDatosACL;
-extern TaskHandle_t xHandle_blink;
-
-extern QueueHandle_t aclQueue;
-extern QueueHandle_t bufferQueue;
-
-extern Adafruit_MPU6050 mpu;
-
 //Variable global
-extern sensors_event_t a, g, tem;
+sensors_event_t a, g, tem;
 
 extern uint8_t buffer_timestamp[NUM_DATOS - 1];
 extern float bufferX[NUM_DATOS - 1];
@@ -51,8 +41,11 @@ void leerDatosACL(void *pvParameters){
   while(true){
 
       //EnableInt(); //Activamos interrupcion
+      Serial.println("PRUEBA 2");
 
       mpu.getEvent(&a, &g, &tem);
+
+      Serial.println("PRUEBA 3");
 
       ACLData aclData; //Estructura a ser llenada con 3 ejes
 

@@ -5,6 +5,7 @@
 #include <freertos/queue.h>
 
 // //Handles de las tareas
+// extern QueueHandle_t xQueue;
 // extern TaskHandle_t xHandle_readBMETask = NULL;
 // extern TaskHandle_t xHandle_receiveDataTask = NULL;
 
