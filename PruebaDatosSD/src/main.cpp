@@ -8,7 +8,6 @@
   SCK   = 18; 
 */
 
-#include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
 

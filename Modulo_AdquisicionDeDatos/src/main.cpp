@@ -8,8 +8,7 @@
 #include <esp32-hal-log.h>
 #include <SdFat.h>
 
-
-#define NUM_DATOS 5000
+#define NUM_DATOS 50
 #define CS 5
 
 //Sensor objects
@@ -26,6 +25,7 @@ TaskHandle_t xHandle_receiveDataTask = NULL;
 TaskHandle_t xHandle_crearBuffer = NULL;
 TaskHandle_t xHandle_recibirDatosACL = NULL;
 TaskHandle_t xHandle_leerDatosACL = NULL;
+TaskHandle_t xHandle_guardarSD = NULL;
 TaskHandle_t xHandle_blink = NULL;
 
 //Handle de la Cola
@@ -159,9 +159,9 @@ void leerDatosACL(void *pvParameters){
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
-  float X[5000];
-  float Y[5000];
-  float Z[5000];
+  float X[NUM_DATOS - 1];
+  float Y[NUM_DATOS - 1];
+  float Z[NUM_DATOS - 1];
 };
 
 void crearBuffer(void *pvParameters){
@@ -178,37 +178,36 @@ void crearBuffer(void *pvParameters){
         bufferX[k] = datos_acl.AclX;
         bufferY[k] = datos_acl.AclY;
         bufferZ[k] = datos_acl.AclZ;
-
         k++; 
-        //printf("k: %u \n", k);
-        //Serial.println(k);
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
         printf("Valor final de k: %u \n", k);
 
         //Creando instancia de tipo BufferACL con el mismo nombre
-        BufferACL BufferACL;
+        //BufferACL bufferACL;
 
         // Using memcpy to copy the arrays into the Data structure
-        memcpy(BufferACL.X, bufferX, sizeof(bufferX));
-        memcpy(BufferACL.Y, bufferY, sizeof(bufferY));
-        memcpy(BufferACL.Z, bufferZ, sizeof(bufferZ));
+        //memcpy(bufferACL.X, bufferX, sizeof(bufferX));
+        // memcpy(bufferACL.Y, bufferY, sizeof(bufferY));
+        // memcpy(bufferACL.Z, bufferZ, sizeof(bufferZ));
 
-        //Inicia el parpadeo del LED en el otro nucleo
-        vTaskResume(xHandle_blink);
+        // //Inicia el parpadeo del LED en el otro nucleo
+        // vTaskResume(xHandle_blink);
 
-        //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
+        // Create a pointer to the structure
+        //BufferACL* pData = &bufferACL;
 
-        for(int w = 0; w < 1000; w++){
-          Serial.print(">X:");
-          Serial.println(bufferX[w]);
-          Serial.print(">Y:");
-          Serial.println(bufferY[k]);
+        vTaskResume(xHandle_guardarSD);
 
-          //printf("t: %u, X: %f, Y: %f, Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
+        //se envia cola a otra tarea
+        if(xQueueSend(bufferQueue, &bufferX, portMAX_DELAY) == pdTRUE){
+          Serial.println("Se envio la cola a la tarea SD.");
         }
-        //vTaskDelete(xHandle_crearBuffer);
+        else{
+          Serial.println("Problema al enviar cola...");
+        }
+        // //vTaskDelete(xHandle_crearBuffer);
       }
     }
     else{
@@ -223,6 +222,11 @@ void crearBuffer(void *pvParameters){
 
 
 void guardarSD(void *pvParameters){
+  while(true){
+
+  float bufferXX[NUM_DATOS - 1] = { };  
+
+  //BufferACL datos_listos;
   // Initialize SdFat or print a detailed error message and halt
   // Use half speed like the native library.
   // change to SPI_FULL_SPEED for more performance.
@@ -232,13 +236,25 @@ void guardarSD(void *pvParameters){
   if (!myFile.open("pruebaTEG1.txt", O_RDWR | O_CREAT | O_AT_END)) {
     sd.errorHalt("opening test.txt for write failed");
   }
+
   // if the file opened okay, write to it:
-  Serial.print("Writing to test.txt...");
-  myFile.println("testing 1, 2, 3.");
+
+  //Headers
+  myFile.println("ACLX");
+
+  Serial.print("Se empieza a escribir en memoria...");
+  if(xQueueReceive(bufferQueue, &bufferXX, portMAX_DELAY)){
+     for(int w = 0; w < NUM_DATOS; w++){
+      myFile.print(bufferXX[w]);
+      myFile.print(",");
+     }
+  }
+  //SUSPENDER TODO MIENTRAS SE GUARDA EN SD? O SE SIGUEN ADQUIRIENDO DATOS?
 
   // close the file:
   myFile.close();
-  Serial.println("done.");
+  Serial.println("Se termino de guardar en SD.");
+  }
 }
 
 void blink(void *pvParameters){
@@ -288,23 +304,6 @@ void receiveDataTask(void *parameter) {
   }
 }
 
-// void wifiInit() {
-//     Serial.print("Conectándose a ");
-//     Serial.println(ssid);
-
-//     WiFi.begin(ssid, password);
-
-//     while (WiFi.status() != WL_CONNECTED) {
-//       Serial.print(".");
-//         vTaskDelay(500 / portTICK_PERIOD_MS);  
-//     }
-//     Serial.println("");
-//     Serial.println("Conectado a WiFi");
-//     Serial.println("Dirección IP: ");
-//     Serial.println(WiFi.localIP());
-//   }
-
-
 void setup() {
 
   //se configura puerto serial
@@ -315,7 +314,7 @@ void setup() {
   //Creacion de las colas
   dataQueue = xQueueCreate(2, sizeof(BMEData));
   aclQueue = xQueueCreate(3, sizeof(ACLData));
-  bufferQueue = xQueueCreate(3, sizeof(ACLData));
+  bufferQueue = xQueueCreate(3, sizeof(BufferACL));
 
   // // Initialize the BME280 sensor
   // while(!bme.begin(0x76)) {
@@ -354,6 +353,8 @@ void setup() {
     //Tareas a ejecutarse en el Nucleo 0
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
     xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
+    xTaskCreatePinnedToCore(guardarSD, "guardarSD", 1024*4, NULL, 2, &xHandle_guardarSD, 1);
+    vTaskSuspend(xHandle_guardarSD);
     //Encender LED
     xTaskCreatePinnedToCore(blink, "blink", 1024*2, NULL, 2, &xHandle_blink, 1);
     vTaskSuspend(xHandle_blink);
