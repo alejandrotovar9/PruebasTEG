@@ -1,8 +1,12 @@
 /*********
-  Rui Santos
-  Complete project details at https://randomnerdtutorials.com  
-*********/
+ 
+  Jose Tovar
+  14/01/2024
 
+*********/
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <Wire.h>
@@ -12,13 +16,29 @@
 
 // Add your MQTT Broker IP address, example:
 //const char* mqtt_server = "192.168.1.144";
-const char* mqtt_server = "192.168.1.101";
+//const char* mqtt_server = "192.168.1.101";
+const char* mqtt_server = "192.168.1.106";
+//const char* mqtt_server = "192.168.224.64";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 long lastMsg = 0;
 char msg[50];
 int value = 0;
+
+//Estructura de 2 flotantes para temp&hum
+struct BMEData {
+  float temperature;
+  float humidity;
+};
+
+//Handle de la Cola
+QueueHandle_t xQueue;
+QueueHandle_t dataQueue;
+
+//Handle de tareas
+TaskHandle_t xHandle_mqttTask;
+TaskHandle_t xHandle_readBMETask;
 
 //uncomment the following lines if you're using SPI
 /*#include <SPI.h>
@@ -34,8 +54,36 @@ float temperature = 0;
 float humidity = 0;
 
 // LED Pin
-const int ledPin = 4;
+const int ledPin = 17;
 
+void temp_hum_setup(void){
+  // Inicializacion de sensor BME280
+    while(!bme.begin(0x76)) 
+    {
+      Serial.println("No se encontro el sensor BME280!");
+      while (1)
+      {
+        delay(10);
+      }
+    }
+}
+
+void readBMETask(void *parameter){
+  while (true) {
+    //Crea una estructura de tipo BMEData
+    BMEData data1;
+
+    //Lee los valores del sensor y los guarda en la estructura
+    data1.humidity = bme.readHumidity();
+    data1.temperature = bme.readTemperature();
+    
+    //Envia los datos a la cola dataQueue
+    xQueueSend(dataQueue, &data1, portMAX_DELAY);
+
+    //Delay for 5 seconds
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+  }
+}
 
 void setup_wifi() {
   delay(10);
@@ -100,7 +148,54 @@ void reconnect() {
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
-      delay(5000);
+      vTaskDelay(10000/portTICK_PERIOD_MS);
+    }
+  }
+}
+
+void mqttTask(void *pvParameters){
+  while(true)
+  {
+      if (!client.connected()) 
+    {
+      reconnect();
+    }
+    client.loop();
+
+    //Recibe la data de la cola y la guarda en una nueva estructura
+    BMEData data;
+    xQueueReceive(dataQueue, &data, portMAX_DELAY);
+
+    long now = millis();
+    if (now - lastMsg > 5000) 
+    {
+      lastMsg = now;
+      
+      // Temperature in Celsius
+      //temperature = bme.readTemperature();   
+      temperature = data.temperature; 
+      // Uncomment the next line to set temperature in Fahrenheit 
+      // (and comment the previous temperature line)
+      //temperature = 1.8 * bme.readTemperature() + 32; // Temperature in Fahrenheit
+      
+      // Convert the value to a char array
+      char tempString[8];
+      dtostrf(temperature, 1, 2, tempString);
+      //Imprime por serial y publica al topico
+      Serial.print("Temperature: ");
+      Serial.println(tempString);
+      client.publish("esp32/temperature", tempString);
+
+      //humidity = bme.readHumidity();
+      humidity = data.humidity;
+      
+      // Convert the value to a char array
+      char humString[8];
+      dtostrf(humidity, 1, 2, humString);
+      //Imprime por serial y publica al topico
+      Serial.print("Humidity: ");
+      Serial.println(humString);
+      client.publish("esp32/humidity", humString);
     }
   }
 }
@@ -110,49 +205,23 @@ void setup() {
   // default settings
   // (you can also pass in a Wire library object like &Wire2)
   //status = bme.begin();  
-  if (!bme.begin(0x76)) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring!");
-    while (1);
-  }
+
+  //Creacion de las colas
+  dataQueue = xQueueCreate(2, sizeof(BMEData));
+
+  temp_hum_setup();  
   setup_wifi();
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 
   pinMode(ledPin, OUTPUT);
+  //Creacion de tareas
+
+  //Tareas a ejecutarse en el Nucleo 1 (lectura de hum y temp)
+  xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 1);
+  xTaskCreatePinnedToCore(mqttTask, "mqttTask", 1024*2, NULL, 1, &xHandle_mqttTask, 1);
 }
 
-
-
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-
-  long now = millis();
-  if (now - lastMsg > 5000) {
-    lastMsg = now;
-    
-    // Temperature in Celsius
-    temperature = bme.readTemperature();   
-    // Uncomment the next line to set temperature in Fahrenheit 
-    // (and comment the previous temperature line)
-    //temperature = 1.8 * bme.readTemperature() + 32; // Temperature in Fahrenheit
-    
-    // Convert the value to a char array
-    char tempString[8];
-    dtostrf(temperature, 1, 2, tempString);
-    Serial.print("Temperature: ");
-    Serial.println(tempString);
-    client.publish("esp32/temperature", tempString);
-
-    humidity = bme.readHumidity();
-    
-    // Convert the value to a char array
-    char humString[8];
-    dtostrf(humidity, 1, 2, humString);
-    Serial.print("Humidity: ");
-    Serial.println(humString);
-    client.publish("esp32/humidity", humString);
-  }
+ //No hacer nada
 }
