@@ -4,15 +4,13 @@
 
 
 #define ss 5
-#define rst 16
-#define dio0 4
-#define LED 2
+#define rst 14
+#define dio0 2
+#define LED 4
 
-void setup() {
-   Serial.begin(115200);
-  while (!Serial);
-  Serial.println("LoRa Receiver");
-  
+void lora_setup(void){
+  LoRa.setSpreadingFactor(6); //Valor entre 6 y 12
+
   LoRa.setPins(ss, rst, dio0);    //setup LoRa transceiver module
  
   while (!LoRa.begin(433E6))     //433E6 - Asia, 866E6 - Europe, 915E6 - North America
@@ -24,8 +22,15 @@ void setup() {
   Serial.println("LoRa Initializing OK!");
 }
 
+void setup() {
+   Serial.begin(115200);
+  while (!Serial);
+  Serial.println("LoRa Receiver");
+  lora_setup();
+}
+
 void loop() {
-    int packetSize = LoRa.parsePacket();    // try to parse packet
+  int packetSize = LoRa.parsePacket();    // try to parse packet
   if (packetSize) 
   {
     
@@ -39,7 +44,7 @@ void loop() {
     }
     Serial.print("' with RSSI ");         // print RSSI of packet
     Serial.println(LoRa.packetRssi());
-    delay(2000);
+    //delay(2000);
     digitalWrite(LED,LOW);
   }
   }
