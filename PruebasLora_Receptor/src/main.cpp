@@ -11,7 +11,7 @@
 #define dio0 2
 #define LED 4
 
-const int maxPayloadSize = 10;
+const int maxPayloadSize = 255;
 
 // //Handle de tareas
 TaskHandle_t xHandle_lora_receive_packet;
@@ -20,35 +20,72 @@ TaskHandle_t xHandle_lora_send_packet;
 void lora_receive_packet(void *pvParameters){
    // Check if there is any incoming data
   while(1)
-  { 
-    if (LoRa.parsePacket()) {
-      Serial.print("Received packet: ");
+  {
+    //Serial.println("Esperando datos...");
+    int packetSize;
+    packetSize = LoRa.parsePacket();
+    if (packetSize > 0) {
+      Serial.print("Received packet from ESP32 2 (Receptor/E.B): ");
       //Read data and print it
-      byte receivedData[maxPayloadSize];
+      char receivedData[maxPayloadSize];
       size_t dataSize = LoRa.readBytes(receivedData, maxPayloadSize);
 
-      for (size_t i = 0; i < dataSize; i++) {
-        Serial.print(receivedData[i]);
-        Serial.print(" ");
-      }
-      Serial.println();
+      Serial.println(receivedData);
 
-      //Se envia mensaje de confirmacion
-      //vTaskResume(&xHandle_lora_send_packet);
+      //Se envia siguiente mensaje
+      // vTaskResume(&xHandle_lora_send_packet);
+      // vTaskSuspend(&xHandle_lora_receptor);
     }
-  }  
-  vTaskDelay(100/portTICK_PERIOD_MS); // Adjust the delay based on your requirements
+    vTaskDelay(10/portTICK_PERIOD_MS);
+
+    // else{
+    //   //Do nothing
+    // }
+  }
+
+  //  // Check if there is any incoming data
+  // while(1)
+  // { 
+  //   String LoRaData;
+  //   // LoRa data packet size received from LoRa sender
+  //   int packetSize = LoRa.parsePacket();
+  //   // if the packer size is not 0, then execute this if condition
+  //   if (packetSize) {
+  //     // received a packet
+  //     Serial.print("Received packet: ");
+
+  //     // receiving the data from LoRa sender
+  //     while (LoRa.available()) {
+  //       LoRaData = LoRa.readString();
+  //     }
+  //     Serial.println(LoRaData);
+  //   }
+  // }
 }
 
 void lora_send_packet(void *Parameters){
   while(1)
-    {  
-      Serial.print("Sending confirmation...");
+     {  
+      Serial.println("Enviando paquete desde estacion base...");
+      //Serial.println(counter);
+    
+      //byte data[5] = {0x01, 0x02, 0x03, 0x04, 0x05};
+      //data[0] = counter; 
 
       LoRa.beginPacket();   //Send LoRa packet to receiver
-      LoRa.print("Si");
+      LoRa.print("Hola ESP32 1!!!");
+      //LoRa.write(data, sizeof(data));
+      //LoRa.print(counter);
       LoRa.endPacket();
-      vTaskSuspend(&xHandle_lora_send_packet);
+
+      //counter++;
+
+      // vTaskResume(&xHandle_lora_receptor);
+      // vTaskSuspend(&xHandle_lora_send_packet);
+
+      int num = random(100) + 3000;
+    
+      vTaskDelay(num/portTICK_PERIOD_MS);
     }
 }
 
@@ -71,8 +108,8 @@ void setup() {
   Serial.println("LoRa Receiver");
   lora_setup();
 
-  xTaskCreatePinnedToCore(lora_receive_packet, "lora_receive_packet", 1024*2, NULL, 1, &xHandle_lora_receive_packet, 1);  
-  // xTaskCreatePinnedToCore(lora_send_packet, "lora_send_packet", 1024*2, NULL, 1, &xHandle_lora_send_packet, 0);
+  xTaskCreatePinnedToCore(lora_receive_packet, "lora_receive_packet", 1024*4, NULL, 1, &xHandle_lora_receive_packet, 0);  
+  //xTaskCreatePinnedToCore(lora_send_packet, "lora_send_packet", 1024*4, NULL, 1, &xHandle_lora_send_packet, 1);
   // vTaskSuspend(&xHandle_lora_send_packet);  
 
 }
