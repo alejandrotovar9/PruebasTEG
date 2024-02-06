@@ -45,7 +45,7 @@ int expected_length = 125;
 
 int leer_datos(int packetSize){
 
-  if (packetSize == 0) return 0;          // if there's no packet, return
+  if (packetSize == 0) return 0;          // if there's no packet, return 0
 
   Serial.println("Hay mensaje");
 
@@ -56,7 +56,7 @@ int leer_datos(int packetSize){
   byte incomingLength = LoRa.read();    // incoming msg length
 
   if (incomingLength != expected_length) {   // check length for error
-    Serial.println("error: message length does not match length");
+    Serial.println("error: message length does not match expected length");
     return 1;                             // skip rest of function
   }
 
@@ -70,18 +70,13 @@ int leer_datos(int packetSize){
     k++;
   }
 
-  //Revisar por que se reinicia l micro en esta excepcion
   // if the recipient isn't this device or broadcast,
   if (recipient != localAddress && recipient != 0xFF) {
     Serial.println("This message is not for me.");
-    //Reescribiendo en el buffer que ya tenia? Por eso el error?
-    //Vaciando arreglo...
-    //incoming[incomingLength] = {};
-    //vTaskDelay(1000/portTICK_PERIOD_MS);
     return 2;                             // skip rest of function
   }
 
-   // if message is for this device, or broadcast, print details:
+  // if message is for this device, or broadcast, print details:
   Serial.println("Received from: 0x" + String(sender, HEX));
   Serial.println("Sent to: 0x" + String(recipient, HEX));
   Serial.println("Message ID: " + String(incomingMsgId));
@@ -91,8 +86,6 @@ int leer_datos(int packetSize){
   Serial.println("Snr: " + String(LoRa.packetSnr()));
   Serial.println("El primer byte del mensaje es: " + String(incoming[0], HEX));
   Serial.println();
-
-  //Si llega aca devuelvo true
   return 3;
 }
 
@@ -108,6 +101,10 @@ void sendMessage(size_t size_data, byte data[]) {
   msgCount++;                           // increment message ID
 }
 
+//Variables goblales para excepcion y conteo de errores
+int error_count = 0;
+int general_count = 0;
+
 void poll_packet(void *pvParameters){
   while(1){
     //Serial.println("Polling...");
@@ -118,7 +115,11 @@ void poll_packet(void *pvParameters){
     switch(flag){
       case 0: break;//No se recibio un paquete, seguir haciendo polling
       case 1: 
+        Serial.println("#####################################################");
         Serial.println("Los datos estan corruptos");
+        Serial.println("#####################################################");
+        error_count++;
+        printf("Los errores hasta ahora son: %d/%d \n", error_count, general_count);
         break;//La data no es de la longitud deseada (Data corrupted)
       case 2:
         Serial.println("#####################################################");
@@ -128,6 +129,13 @@ void poll_packet(void *pvParameters){
          //El mensaje no es para el
       case 3:
         Serial.println("Se recibio un paquete!!! Reactivando tarea de envio de mensaje...");
+        general_count++;
+        if(general_count == 255){
+          Serial.println("#####################################################");
+          Serial.println("#####################################################");
+          Serial.println("#####################################################");
+          printf("Los errores para 255 envios fueron: %d/%d \n", error_count, general_count);
+        }
         vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
         //Aqui se enviarian los datos para ser guardados y enviados por MQTT
     }
@@ -185,7 +193,8 @@ void send_packet(void *pvParameters){
     100 bytes
 
     0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05,
-    0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01*/
+    0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01
+    */
 
     size_data = sizeof(data);
 
@@ -196,8 +205,6 @@ void send_packet(void *pvParameters){
 
     //Espero 2 segundos luego de enviar mensaje
     //vTaskDelay(2000/portTICK_PERIOD_MS);
-
-    //vTaskResume(xHandle_poll_packet);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     vTaskSuspend(NULL);
