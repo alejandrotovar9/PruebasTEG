@@ -26,11 +26,11 @@ const int irqPin = 2;         // change for your board; must be a hardware inter
 // //Handle de tareas
 TaskHandle_t xHandle_poll_packet;
 TaskHandle_t xHandle_send_packet;
-TaskHandle_t xHandle_timer;
+TaskHandle_t xHandle_enviar_modo_op;
 
-float floatArray[] = {3.14, 1.23, 4.56, 2.34, 5.67};
-byte* byteArray = reinterpret_cast<byte*>(floatArray);
-size_t byteArraySize = sizeof(floatArray);
+// float floatArray[] = {3.14, 1.23, 4.56, 2.34, 5.67};
+// byte* byteArray = reinterpret_cast<byte*>(floatArray);
+// size_t byteArraySize = sizeof(floatArray);
 
 String outgoing;              // outgoing message
 
@@ -41,7 +41,7 @@ byte destination = 0xFF;      // destination to send to
 long lastSendTime = 0;        // last send time
 int interval = 2000;          // interval between sends
 
-int NUM_PAQUETES_ESPERADOS = 32;
+byte NUM_PAQUETES_ESPERADOS = 32;
 int expected_length = 125;
 
 //Funcion para leer y verificar datos recibidos luego del polling
@@ -49,7 +49,7 @@ int leer_datos(int packetSize){
 
   if (packetSize == 0) return 0;          // if there's no packet, return 0
 
-  Serial.println("Hay mensaje");
+  Serial.println("Mensaje recibido:");
 
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
@@ -74,7 +74,7 @@ int leer_datos(int packetSize){
 
   // if the recipient isn't this device or broadcast,
   if (recipient != localAddress && recipient != 0xFF) {
-    Serial.println("This message is not for me.");
+    Serial.println("Este mensaje no es para mi.");
     return 2;                             // skip rest of function
   }
 
@@ -86,11 +86,13 @@ int leer_datos(int packetSize){
   //Serial.println("Message: " + incoming);
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El ultimo byte del mensaje es: " + String(incoming[int(incomingLength) - 1], HEX));
+  Serial.println("El ultimo byte del mensaje recibido es: " + String(incoming[int(incomingLength) - 1], HEX));
   Serial.println();
   //return 3;
 
-  if (int(incomingMsgId) != NUM_PAQUETES_ESPERADOS)
+  printf("El valor actual de msgID en int es: %d \n", int(incomingMsgId));
+
+  if (int(incomingMsgId) < NUM_PAQUETES_ESPERADOS)
   {
     return 3;
   }
@@ -141,16 +143,17 @@ void poll_packet(void *pvParameters){
       case 2:
         general_count++;
         Serial.println("#####################################################");
-        Serial.println("Los datos estan corruptos o no son para este receptor");
+        Serial.println("Los datos no son para este receptor");
         Serial.println("#####################################################");
         break;
          //El mensaje no es para el
       case 3:
         Serial.println("Se recibio un paquete!!! Reactivando tarea de envio de mensaje...");
         general_count++;
-        Serial.println("#####################################################");
         printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
+        Serial.println();
         vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
+        break;
         //Aqui se enviarian los datos para ser guardados y enviados por MQTT
       case 4:
         Serial.println("Se recibieron todos los paquetes!!!");
@@ -160,7 +163,9 @@ void poll_packet(void *pvParameters){
         //Cambio flag para detener envio de datos desde el emisor
         flag_envio = 2;
         vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
-        //Aqui se enviarian los datos para ser guardados y enviados por MQTT
+        //Vuelvo a enviar el modo de operacion para siguiente trama y espero...
+        //vTaskResume(xHandle_enviar_modo_op);
+        break;
     }
 
       vTaskDelay(10/portTICK_PERIOD_MS);
@@ -195,8 +200,10 @@ void enviar_modo_op(void *pvParameters){
 
     //Llamo a la funcion que crea la trama de datos (payload)
     sendMessage(size_data, modo_op);
-    Serial.println("Sending byte array de respuesta!");
+    printf("Modo de operacion %d enviado! \n", modo_de_operacion);
     Serial.println();
+
+    vTaskDelay(2000/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     vTaskSuspend(NULL);
@@ -237,6 +244,63 @@ void send_packet(void *pvParameters){
   }  
 }
 
+//GENERANDO DATOS
+void chunks(void){
+    const int CHUNK_SIZE = 32;
+    float floatArray[1024]; // Assume this is filled with data...
+
+    // Calculate the number of chunks
+    int numChunks = sizeof(floatArray) / sizeof(float) / CHUNK_SIZE;
+
+    // Create an array to hold the chunks
+    float chunks[numChunks][CHUNK_SIZE];
+
+    // Split the array into chunks
+    for (int i = 0; i < numChunks; i++) {
+      memcpy(chunks[i], &floatArray[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
+    }
+
+}
+
+// Initialize an array of 125 floats
+float floatArray[32];
+float floatArray2[32];
+
+void generararray(void){
+    for (int i = 0; i < 32; i++) {
+        floatArray[i] = static_cast<float>(i);
+    }
+    unsigned long start = millis();
+
+    // Convert the float array to a byte array
+    byte byteArray[32 * sizeof(float)];
+    memcpy(byteArray, floatArray, sizeof(floatArray));
+
+    // Print the byte array
+    for (int i = 0; i < sizeof(byteArray); i++) {
+        Serial.print(byteArray[i], HEX); // Print each byte in hexadecimal
+        Serial.print(" "); // Print a space between each byte
+    }
+    Serial.println(); // Print a newline at the end
+
+    //Converting back to a float array and printing it
+    memcpy(floatArray2, byteArray, sizeof(floatArray2)); // Copy the data from the byte array to the float array
+
+    unsigned long end = millis();
+    unsigned long elapsedTime = end - start;
+
+    Serial.print("Time taken: ");
+    Serial.print(elapsedTime);
+    Serial.println(" milliseconds");
+
+    for (int i = 0; i < 32; i++) {
+        Serial.print(floatArray2[i]); // Print each float
+        Serial.print("\n"); // Print a space between each float
+    }
+
+    printf("The sizes of each array are: floatArray %d and byte array %d \n", sizeof(floatArray2), sizeof(byteArray));
+}
+
 void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
@@ -262,12 +326,15 @@ void setup() {
 
   Serial.println("LoRa init succeeded.");
 
+  generararray();
+
   //Tareas de FreeRTOS corriendo en el nucleo 0 del ESP32
   xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*2, NULL, 1, &xHandle_send_packet, 0);
   vTaskSuspend(xHandle_send_packet);
   xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*2, NULL, 1, &xHandle_poll_packet, 0);
+  //vTaskSuspend(xHandle_poll_packet);
+  xTaskCreatePinnedToCore(enviar_modo_op, "enviar_modo_op", 1024*2, NULL, 1, &xHandle_enviar_modo_op, 0);
   
-  //xTaskCreatePinnedToCore(timer, "timer", 1024*2, NULL, 1, &xHandle_timer, 0);
 }
 
 void loop() {

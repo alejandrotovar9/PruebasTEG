@@ -11,6 +11,7 @@ Trabajo Especial de Grado - EIE
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <string.h>
 
 const int csPin = 5;          // LoRa radio chip select
 const int resetPin = 14;       // LoRa radio reset
@@ -42,7 +43,7 @@ int leer_datos_sensor(int packetSize){
 
   if (packetSize == 0) return 0;          // if there's no packet, return 0
 
-  Serial.println("Hay mensaje");
+  Serial.println("Mensaje recibido");
 
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
@@ -79,19 +80,15 @@ int leer_datos_sensor(int packetSize){
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
   Serial.println("El byte del mensaje es: " + String(incoming[0], HEX));
-  Serial.println();
 
-  if (incoming[0] = 0x01){
-    //Se recibio un paquete pero aun faltan
-    return 3;
-  }
-  else if(incoming[0] = 0x02){
+  if(String(incoming[0], HEX) == "2"){
     //Se recibieron todos los paquetes en el receptor, no enviar mas paquetes
+    Serial.println("Si es 2!!!");
     return 4;
   }
   else{
     //El paquete no se recibio con exito
-    return 5;
+    return 3;
   }
 }
 
@@ -159,7 +156,12 @@ void sendMessage(size_t size_data, byte data[]) {
   //LoRa.print(outgoing);                 // add payload
   LoRa.write(data, size_data);
   LoRa.endPacket();                     // finish packet and send it
-  msgCount++;                           // increment message ID
+  if(msgCount <= NUM_PAQUETES_ESPERADOS){
+    msgCount++;
+  }
+  else{
+    msgCount = 0;
+  }
 }
 
 //RUTINA DE POLLING PARA VERIFICAR EL MODO DE OPERACION DEL SENSORE INTELIGENTE
@@ -169,11 +171,14 @@ void poll_modo_operacion(void *pvParameters){
     int modo_de_operacion = leer_modo_op(packetSize);
 
     switch(modo_de_operacion){
-      case 0: break; //No se recibio ningun mensaje, seguir haciendo polling
+      case 0: 
+      //Serial.println("No se recibio nada");
+      break; //No se recibio ningun mensaje, seguir haciendo polling
 
       case 1: //Modo de operacion 1: Envio de trama de datos
       //Rutinas del modo de operacion 1
       Serial.println("Se selecciono el modo de operacion 1: Envio de trama de datos inmediata");
+      //msgCount = 0;
       vTaskResume(xHandle_send_packet); //Rutina de envio de trama de datos
       vTaskResume(xHandle_poll_packet); //Rutina de polling para mensajes del receptor'
       vTaskSuspend(NULL); //Suspendo temporalmente el polling de modo de operacion
@@ -193,7 +198,7 @@ void poll_modo_operacion(void *pvParameters){
       break;
     }
 
-    vTaskDelay(10/portTICK_PERIOD_MS);
+    vTaskDelay(100/portTICK_PERIOD_MS);
   }
 }
 
@@ -231,15 +236,18 @@ void poll_packet(void *pvParameters){
         general_count++;
         Serial.println("#####################################################");
         printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
+        Serial.println();
+        break;
         //vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
       case 4:  //Respondo al emisor con que los datos ya fueron enviados por completo
-        Serial.println("Se recibieron todos los paquetes desde el receptor!!!");
+        Serial.println("Se recibieron todos los paquetes en el receptor!!!");
         Serial.println("Desactivando rutina de envio de datos en el emisor...");
         vTaskSuspend(xHandle_send_packet);
         Serial.println("Reactivando rutina de lectura de modo de operacion del sensor...");
         vTaskResume(xHandle_poll_modo_operacion);
         Serial.println("Desactivando esta rutina de polling recepcion de datos de sensores");
         vTaskSuspend(NULL);
+        break;
       case 5:
         Serial.println("Se recibio un paquete en el receptor pero no se reconoce el mensaje");
         break;
@@ -252,6 +260,9 @@ void poll_packet(void *pvParameters){
       //vTaskResume(xHandle_send_packet);
     }
 }
+
+
+
 
 //RUTINA DE ENVIO DE DATOS DE SENSORES A ESTACION BASE
 void send_packet(void *pvParameters){
