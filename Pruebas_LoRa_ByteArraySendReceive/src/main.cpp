@@ -40,9 +40,11 @@ byte localAddress = 0xBB;     // address of this device
 byte destination = 0xFF;      // destination to send to
 long lastSendTime = 0;        // last send time
 int interval = 2000;          // interval between sends
+
+int NUM_PAQUETES_ESPERADOS = 32;
 int expected_length = 125;
 
-
+//Funcion para leer y verificar datos recibidos luego del polling
 int leer_datos(int packetSize){
 
   if (packetSize == 0) return 0;          // if there's no packet, return 0
@@ -84,11 +86,21 @@ int leer_datos(int packetSize){
   //Serial.println("Message: " + incoming);
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El primer byte del mensaje es: " + String(incoming[0], HEX));
+  Serial.println("El ultimo byte del mensaje es: " + String(incoming[int(incomingLength) - 1], HEX));
   Serial.println();
-  return 3;
+  //return 3;
+
+  if (int(incomingMsgId) != NUM_PAQUETES_ESPERADOS)
+  {
+    return 3;
+  }
+  else{
+    //Se recibieron todos los paquetes
+    return 4;
+  }
 }
 
+//Funcion para crear trama de datos (payload)
 void sendMessage(size_t size_data, byte data[]) {
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
@@ -105,6 +117,10 @@ void sendMessage(size_t size_data, byte data[]) {
 int error_count = 0;
 int general_count = 0;
 
+//Flag para controlar envio de datos
+int flag_envio = 1;
+
+//RUTINA DE POLLING DEL RECEPTOR (ESTACION BASE)
 void poll_packet(void *pvParameters){
   while(1){
     //Serial.println("Polling...");
@@ -114,7 +130,8 @@ void poll_packet(void *pvParameters){
     //--------------------------Manejo de excepciones de receptor------------------------------
     switch(flag){
       case 0: break;//No se recibio un paquete, seguir haciendo polling
-      case 1: 
+      case 1:
+        general_count++; 
         Serial.println("#####################################################");
         Serial.println("Los datos estan corruptos");
         Serial.println("#####################################################");
@@ -122,6 +139,7 @@ void poll_packet(void *pvParameters){
         printf("Los errores hasta ahora son: %d/%d \n", error_count, general_count);
         break;//La data no es de la longitud deseada (Data corrupted)
       case 2:
+        general_count++;
         Serial.println("#####################################################");
         Serial.println("Los datos estan corruptos o no son para este receptor");
         Serial.println("#####################################################");
@@ -130,71 +148,82 @@ void poll_packet(void *pvParameters){
       case 3:
         Serial.println("Se recibio un paquete!!! Reactivando tarea de envio de mensaje...");
         general_count++;
-        if(general_count == 255){
-          Serial.println("#####################################################");
-          Serial.println("#####################################################");
-          Serial.println("#####################################################");
-          printf("Los errores para 255 envios fueron: %d/%d \n", error_count, general_count);
-        }
+        Serial.println("#####################################################");
+        printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
+        vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
+        //Aqui se enviarian los datos para ser guardados y enviados por MQTT
+      case 4:
+        Serial.println("Se recibieron todos los paquetes!!!");
+        general_count++;
+        Serial.println("#####################################################");
+        printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
+        //Cambio flag para detener envio de datos desde el emisor
+        flag_envio = 2;
         vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
         //Aqui se enviarian los datos para ser guardados y enviados por MQTT
     }
-    // if(leer_datos(packetSize)){ //AQUI PUEDE IR EL CONTADOR DE IDs para enviar mensaje de verificacion
-    //   //Se recibio algo
-    //   Serial.println("Se recibio un paquete!!! Reactivando tarea de envio de mensaje...");
-    //   vTaskResume(xHandle_send_packet);
-    // }
-    // else{
-    //   //vTaskDelay(1000/portTICK_PERIOD_MS);
-    // }
-      // if(leer_datos(packetSize) == 1){
-      //   Serial.println("Recepcion correcta");
-      // }
-      // else{
-      //   Serial.println("Error en el envio...");
-      //   vTaskDelay(500/portTICK_PERIOD_MS);
-      // }
 
-      //Serial.println("No han llegado datos...");
       vTaskDelay(10/portTICK_PERIOD_MS);
 
-      //Activa la tarea de envio de datos una vez se recibe algo
-      //vTaskResume(xHandle_send_packet);
     }
 }
 
-void send_packet_nollego(void *pvParameters){
+//Prueba modo de op
+int modo_de_operacion = 1;
+
+//RUTINA PARA ENVIO DE COMANDOS O MODOS DE RECEPCION AL EMISOR
+void enviar_modo_op(void *pvParameters){
   while(1){
-    //Byte array a enviar
+     //Byte array a enviar en caso default (modo de operacion 1: envio de una trama de datos)
+    byte modo_op[1]; // Default data
     size_t size_data;
-    byte data[]={0x00}; 
-    size_data = sizeof(data);
+
+    switch (modo_de_operacion)
+    {
+    case 2: //Modo de operacion 2: Envio de datos continuos
+      modo_op[0]= {0x02};
+      break;
+    case 3: //Modo de operacion 3: POR DEFINIR!!!
+      modo_op[0]= {0x03};
+      break;
+    default:
+      modo_op[0]= {0x01};
+      break;
+    }
+
+    size_data = sizeof(modo_op);
 
     //Llamo a la funcion que crea la trama de datos (payload)
-    sendMessage(size_data, data);
-    Serial.println("Sending byte array de respuesta negativa!");
-
-    //Espero 2 segundos luego de enviar mensaje
-    //vTaskDelay(2000/portTICK_PERIOD_MS);
-
-    //vTaskResume(xHandle_poll_packet);
+    sendMessage(size_data, modo_op);
+    Serial.println("Sending byte array de respuesta!");
+    Serial.println();
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     vTaskSuspend(NULL);
-  }  
+  }
 }
 
+//RUTINA DE RESPUESTA DEL RECEPTOR (ESTACION BASE)
 void send_packet(void *pvParameters){
   while(1){
-    //Byte array a enviar
+    //Byte array a enviar en caso default (data llego con exito)
+    byte data[1]; // Default data
     size_t size_data;
-    byte data[]={0x01}; 
-    /*
-    100 bytes
 
-    0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05,
-    0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01
-    */
+    switch (flag_envio)
+    {
+    case 0: //No se recibio paquete con exito
+      data[0] = {0x00};
+      break;
+    case 2: //Se recibio paquete con exito y ya se recibieron todos los paquetes, no enviar mas
+      data[0] = {0x02};
+      break;
+    default:
+      data[0] = {0x01}; //Se recibio paquete con exito, seguir enviando
+    }
+
+    //Reinicio bandera a caso default
+    flag_envio = 1;
 
     size_data = sizeof(data);
 
@@ -202,9 +231,6 @@ void send_packet(void *pvParameters){
     sendMessage(size_data, data);
     Serial.println("Sending byte array de respuesta!");
     Serial.println();
-
-    //Espero 2 segundos luego de enviar mensaje
-    //vTaskDelay(2000/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     vTaskSuspend(NULL);
@@ -224,6 +250,15 @@ void setup() {
     Serial.println("LoRa init failed. Check your connections.");
     while (true);                       // if failed, do nothing
   }
+
+  Serial.println(LoRa.getSignalBandwidth());
+  Serial.println(LoRa.getSpreadingFactor());
+
+  //Configuracion de LoRa
+  LoRa.setSignalBandwidth(125E3);//7.8E3 hasta 250E3, por defecto es 31.25E3
+  LoRa.setSpreadingFactor(7);//entre 6 y 12
+  //LoRa.setTxPower();
+  //LoRa.enableCrc();
 
   Serial.println("LoRa init succeeded.");
 
