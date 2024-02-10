@@ -15,6 +15,7 @@ Trabajo Especial de Grado - EIE
 
 #define SIZE_OF_FLOAT_ARRAY 1024
 #define CHUNK_SIZE 32
+//Son 32 chunks, de 32 floats cada uno, para un total de 1024 floats
 
 const int csPin = 5;          // LoRa radio chip select
 const int resetPin = 14;       // LoRa radio reset
@@ -68,8 +69,8 @@ int generararray(int contador_paquetes)
     }
     
     // Convert the float array to a byte array
-    byte byteArray[SIZE_OF_FLOAT_ARRAY * sizeof(float)]; //Inicializacion de byte array
-    memcpy(byteArray, floatArray, sizeof(floatArray));
+    // byte byteArray[SIZE_OF_FLOAT_ARRAY * sizeof(float)]; //Inicializacion de byte array
+    // memcpy(byteArray, floatArray, sizeof(floatArray));
     
     // //Converting back to a float array and printing it
     // memcpy(floatArray2, byteArray, sizeof(floatArray2)); // Copy the data from the byte array to the float array
@@ -84,7 +85,7 @@ int generararray(int contador_paquetes)
     // }
     
     Serial.print("Se envio el siguiente chunk: ");
-    for(int w= 0; w < CHUNK_SIZE; w++){
+    for(int w= 0; w < CHUNK_SIZE; w++){ 
           Serial.print(chunks[contador_paquetes][w]); // Print each float
           Serial.print(" ");
     }
@@ -219,7 +220,7 @@ void sendMessage(size_t size_data, byte data[]) {
   //LoRa.print(outgoing);                 // add payload
   LoRa.write(data, size_data);
   LoRa.endPacket();                     // finish packet and send it
-  if(msgCount <= NUM_PAQUETES_ESPERADOS){
+  if(msgCount <= NUM_PAQUETES_ESPERADOS - 1){
     msgCount++;
   }
   else{
@@ -406,7 +407,7 @@ void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
 
-  Serial.println("LoRa Duplex");
+  Serial.println("LoRa SENSOR INTELIGENTE");
 
   //Creacion de las colas
   arrayQueue = xQueueCreate(1, CHUNK_SIZE * sizeof(float));

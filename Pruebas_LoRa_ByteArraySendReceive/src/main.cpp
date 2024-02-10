@@ -19,7 +19,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
-#define SIZE_OF_FLOAT_ARRAY 500
+#define SIZE_OF_FLOAT_ARRAY 1024
 #define CHUNK_SIZE 32
 
 const int csPin = 5;          // LoRa radio chip select
@@ -91,10 +91,14 @@ int leer_datos(int packetSize){
     // memcpy(incoming_float, incoming, sizeof(incoming)); // Copy the data from the byte array to the float array
     // Serial.println(sizeof(chunks));
 
-    // for (int i = 0; i < incomingLength/2; i + 4) {
-    //       Serial.print(String(incoming[i], HEX) + String(incoming[i+1], HEX) +String(incoming[i+2], HEX) + String(incoming[i+3], HEX)); // Print each float
-    //       Serial.print("\n"); // Print a space between each float
-    // }
+    Serial.print("Se recibio el siguiente chunk: ");
+    //Se cambio el limite de CHUNK_SIZE a CHUNK_SIZE*2 para ver todos los valores que estan llegando
+    for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
+      float value;
+      memcpy(&value, &incoming[w], sizeof(float));
+      Serial.print(value);
+      Serial.print(" ");
+    }
 
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
@@ -261,7 +265,7 @@ void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
 
-  Serial.println("LoRa Duplex");
+  Serial.println("LoRa ESATCION BASE");
 
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
