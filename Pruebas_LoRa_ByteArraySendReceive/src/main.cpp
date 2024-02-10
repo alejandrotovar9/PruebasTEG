@@ -92,7 +92,7 @@ int leer_datos(int packetSize){
     // Serial.println(sizeof(chunks));
 
     Serial.print("Se recibio el siguiente chunk: ");
-    //Se cambio el limite de CHUNK_SIZE a CHUNK_SIZE*2 para ver todos los valores que estan llegando
+    //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats 
     for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
       float value;
       memcpy(&value, &incoming[w], sizeof(float));
@@ -219,10 +219,10 @@ void enviar_modo_op(void *pvParameters){
     printf("Modo de operacion %d enviado! \n", modo_de_operacion);
     Serial.println();
 
-    vTaskDelay(2000/portTICK_PERIOD_MS);
+    vTaskDelay(5000/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
-    vTaskSuspend(NULL);
+    //vTaskSuspend(NULL);
   }
 }
 
