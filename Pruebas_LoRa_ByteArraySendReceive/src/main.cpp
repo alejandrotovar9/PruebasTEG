@@ -19,6 +19,9 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
+#define SIZE_OF_FLOAT_ARRAY 500
+#define CHUNK_SIZE 32
+
 const int csPin = 5;          // LoRa radio chip select
 const int resetPin = 14;       // LoRa radio reset
 const int irqPin = 2;         // change for your board; must be a hardware interrupt pin
@@ -42,7 +45,7 @@ long lastSendTime = 0;        // last send time
 int interval = 2000;          // interval between sends
 
 byte NUM_PAQUETES_ESPERADOS = 32;
-int expected_length = 125;
+int expected_length = 128;
 
 //Funcion para leer y verificar datos recibidos luego del polling
 int leer_datos(int packetSize){
@@ -83,16 +86,25 @@ int leer_datos(int packetSize){
   Serial.println("Sent to: 0x" + String(recipient, HEX));
   Serial.println("Message ID: " + String(incomingMsgId));
   Serial.println("Message length: " + String(incomingLength));
-  //Serial.println("Message: " + incoming);
+  
+    //Converting back to a float array and printing it
+    // memcpy(incoming_float, incoming, sizeof(incoming)); // Copy the data from the byte array to the float array
+    // Serial.println(sizeof(chunks));
+
+    // for (int i = 0; i < incomingLength/2; i + 4) {
+    //       Serial.print(String(incoming[i], HEX) + String(incoming[i+1], HEX) +String(incoming[i+2], HEX) + String(incoming[i+3], HEX)); // Print each float
+    //       Serial.print("\n"); // Print a space between each float
+    // }
+
   Serial.println("RSSI: " + String(LoRa.packetRssi()));
   Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El ultimo byte del mensaje recibido es: " + String(incoming[int(incomingLength) - 1], HEX));
+  Serial.println("El ultimo float del mensaje recibido es: " + String(incoming[int(incomingLength) - 4], HEX) + String(incoming[int(incomingLength) - 3], HEX) +String(incoming[int(incomingLength) - 2], HEX) + String(incoming[int(incomingLength) - 1], HEX));
   Serial.println();
   //return 3;
 
   printf("El valor actual de msgID en int es: %d \n", int(incomingMsgId));
 
-  if (int(incomingMsgId) < NUM_PAQUETES_ESPERADOS)
+  if (int(incomingMsgId) < NUM_PAQUETES_ESPERADOS - 1) //Va del 0 al 31
   {
     return 3;
   }
@@ -244,62 +256,6 @@ void send_packet(void *pvParameters){
   }  
 }
 
-//GENERANDO DATOS
-void chunks(void){
-    const int CHUNK_SIZE = 32;
-    float floatArray[1024]; // Assume this is filled with data...
-
-    // Calculate the number of chunks
-    int numChunks = sizeof(floatArray) / sizeof(float) / CHUNK_SIZE;
-
-    // Create an array to hold the chunks
-    float chunks[numChunks][CHUNK_SIZE];
-
-    // Split the array into chunks
-    for (int i = 0; i < numChunks; i++) {
-      memcpy(chunks[i], &floatArray[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
-    }
-
-}
-
-// Initialize an array of 125 floats
-float floatArray[32];
-float floatArray2[32];
-
-void generararray(void){
-    for (int i = 0; i < 32; i++) {
-        floatArray[i] = static_cast<float>(i);
-    }
-    unsigned long start = millis();
-
-    // Convert the float array to a byte array
-    byte byteArray[32 * sizeof(float)];
-    memcpy(byteArray, floatArray, sizeof(floatArray));
-
-    // Print the byte array
-    for (int i = 0; i < sizeof(byteArray); i++) {
-        Serial.print(byteArray[i], HEX); // Print each byte in hexadecimal
-        Serial.print(" "); // Print a space between each byte
-    }
-    Serial.println(); // Print a newline at the end
-
-    //Converting back to a float array and printing it
-    memcpy(floatArray2, byteArray, sizeof(floatArray2)); // Copy the data from the byte array to the float array
-
-    unsigned long end = millis();
-    unsigned long elapsedTime = end - start;
-
-    Serial.print("Time taken: ");
-    Serial.print(elapsedTime);
-    Serial.println(" milliseconds");
-
-    for (int i = 0; i < 32; i++) {
-        Serial.print(floatArray2[i]); // Print each float
-        Serial.print("\n"); // Print a space between each float
-    }
-
-    printf("The sizes of each array are: floatArray %d and byte array %d \n", sizeof(floatArray2), sizeof(byteArray));
-}
 
 void setup() {
   Serial.begin(115200);                   // initialize serial
@@ -325,8 +281,6 @@ void setup() {
   //LoRa.enableCrc();
 
   Serial.println("LoRa init succeeded.");
-
-  generararray();
 
   //Tareas de FreeRTOS corriendo en el nucleo 0 del ESP32
   xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*2, NULL, 1, &xHandle_send_packet, 0);

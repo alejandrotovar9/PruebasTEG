@@ -13,6 +13,9 @@ Trabajo Especial de Grado - EIE
 #include <freertos/queue.h>
 #include <string.h>
 
+#define SIZE_OF_FLOAT_ARRAY 1024
+#define CHUNK_SIZE 32
+
 const int csPin = 5;          // LoRa radio chip select
 const int resetPin = 14;       // LoRa radio reset
 const int irqPin = 2;         // change for your board; must be a hardware interrupt pin
@@ -21,7 +24,11 @@ const int irqPin = 2;         // change for your board; must be a hardware inter
 TaskHandle_t xHandle_poll_packet;
 TaskHandle_t xHandle_send_packet;
 TaskHandle_t xHandle_poll_modo_operacion;
-TaskHandle_t xHandle_timer;
+TaskHandle_t xHandle_receiveTask;
+
+//Handle de la Cola
+QueueHandle_t xQueue;
+QueueHandle_t arrayQueue;
 
 float floatArray[] = {3.14, 1.23, 4.56, 2.34, 5.67};
 byte* byteArray = reinterpret_cast<byte*>(floatArray);
@@ -38,6 +45,62 @@ int interval = 2000;          // interval between sends
 
 int NUM_PAQUETES_ESPERADOS = 32; //Numero de paquetes que se esperan enviar
 int expected_length = 1; //Longitud esperada de los datos enviados por el receptor
+
+
+//Arreglo de 1024 floats causa reinicio del micro, probable overflow por memoria
+int generararray(int contador_paquetes)
+{
+    //USO DE STATIC EVITA EL REBOOT
+    static float floatArray[SIZE_OF_FLOAT_ARRAY];
+    
+    for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i++) {
+        floatArray[i] = static_cast<float>(i)/100;
+    }    
+
+    // Calculate the number of chunks
+    int numChunks = sizeof(floatArray) / sizeof(float) / CHUNK_SIZE;
+    // Create an array to hold the chunks
+    float chunks[numChunks][CHUNK_SIZE];
+
+    // Split the array into chunks
+    for (int i = 0; i < numChunks; i++) {
+      memcpy(chunks[i], &floatArray[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
+    }
+    
+    // Convert the float array to a byte array
+    byte byteArray[SIZE_OF_FLOAT_ARRAY * sizeof(float)]; //Inicializacion de byte array
+    memcpy(byteArray, floatArray, sizeof(floatArray));
+    
+    // //Converting back to a float array and printing it
+    // memcpy(floatArray2, byteArray, sizeof(floatArray2)); // Copy the data from the byte array to the float array
+    //Serial.println(sizeof(chunks));
+
+    // for (int i = 0; i < numChunks; i++) {
+    //     for(int k= 0; k < CHUNK_SIZE; k++){
+    //       Serial.print(chunks[i][k]); // Print each float
+    //       Serial.print(" ");
+    //     }
+    //     Serial.print("\n"); // Print a space between each float
+    // }
+    
+    Serial.print("Se envio el siguiente chunk: ");
+    for(int w= 0; w < CHUNK_SIZE; w++){
+          Serial.print(chunks[contador_paquetes][w]); // Print each float
+          Serial.print(" ");
+    }
+
+    Serial.println();
+
+    //se envia cola a otra tarea
+    if(xQueueSend(arrayQueue, &chunks[contador_paquetes], portMAX_DELAY) == pdTRUE){
+      Serial.println("Se envio la cola a la tarea.");
+    }
+    else{
+      Serial.println("Problema al enviar cola...");
+    }
+
+    return 0;
+}
 
 int leer_datos_sensor(int packetSize){
 
@@ -198,7 +261,7 @@ void poll_modo_operacion(void *pvParameters){
       break;
     }
 
-    vTaskDelay(100/portTICK_PERIOD_MS);
+    vTaskDelay(10/portTICK_PERIOD_MS);
   }
 }
 
@@ -233,6 +296,7 @@ void poll_packet(void *pvParameters){
          //El mensaje no es para el
       case 3:
         Serial.println("Se recibio un paquete desde el receptor!!!");
+        //vTaskResume(xHandle_send_packet);
         general_count++;
         Serial.println("#####################################################");
         printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
@@ -261,20 +325,46 @@ void poll_packet(void *pvParameters){
     }
 }
 
-
-
+int contador_paquetes = 0;
 
 //RUTINA DE ENVIO DE DATOS DE SENSORES A ESTACION BASE
 void send_packet(void *pvParameters){
   while(1){
-    //Byte array a enviar
+    //Float array a enviar
+     generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
 
-    //Debo recibir los datos a enviar en una cola y formatearlos de ser necesario
+     if(contador_paquetes < SIZE_OF_FLOAT_ARRAY/NUM_PAQUETES_ESPERADOS){
+         contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
+     }
+    else{
+      contador_paquetes = 0; //Reinicio contador de paquetes
+    }
+
+     float floatarray[CHUNK_SIZE];
+     byte data[CHUNK_SIZE * sizeof(float)]; //Inicializacion de byte array
+
+     if(xQueueReceive(arrayQueue, &floatarray, portMAX_DELAY)){
+        Serial.println("Se recibio la cola con los datos");
+     }
+
+    Serial.println();
+    // //Debo recibir los datos a enviar en una cola y formatearlos de ser necesario
+    
+    //Convert the float array to a byte array
+     memcpy(data, floatarray, sizeof(floatarray)); //CHUNK_SIZE * sizeof(float)
+
+    Serial.print("Se recibio el siguiente chunk: ");
+    for(int w= 0; w < CHUNK_SIZE; w++){
+          Serial.print(data[w], HEX); // Print each float
+          Serial.print(" ");
+    }
+    
+    //printf("Tamaño de la cola: %d", sizeof(data));
 
     size_t size_data;
-    byte data[]={0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05,
+    /*byte data[]={0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05,
     0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01,
-    0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04}; 
+    0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04, 0x01, 0x05, 0x04, 0x03, 0x02,0x01, 0x05, 0x04};*/
 
     size_data = sizeof(data);
 
@@ -287,16 +377,42 @@ void send_packet(void *pvParameters){
     vTaskDelay(500/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
-    //vTaskSuspend(NULL);
+    if(contador_paquetes >= SIZE_OF_FLOAT_ARRAY / NUM_PAQUETES_ESPERADOS){
+      vTaskSuspend(NULL);
+    }
   }  
 }
 
+
+void receiveTask(void* pvParameters) {
+  static float array[SIZE_OF_FLOAT_ARRAY];
+  for (;;) {
+    if (xQueueReceive(xQueue, &(array), portMAX_DELAY) == pdPASS) {
+      // Print the received byte array
+      for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i++) {
+        Serial.print(array[i]);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
+    else{
+      Serial.println("Problema con la cola");
+    }
+  }
+  vTaskDelete(NULL); // Delete this task if it ever breaks out from the loop
+}
 
 void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
 
   Serial.println("LoRa Duplex");
+
+  //Creacion de las colas
+  arrayQueue = xQueueCreate(1, CHUNK_SIZE * sizeof(float));
+  if (arrayQueue == NULL) {
+    // Failed to create the queue.
+  }
 
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
@@ -312,8 +428,11 @@ void setup() {
 
   Serial.println("LoRa init succeeded.");
 
+  //generararray();
+  //xTaskCreatePinnedToCore(receiveTask, "receiveTask", 1024*3, NULL, 1, &xHandle_receiveTask, 0);
+
   //Tareas de FreeRTOS corriendo en el nucleo 0 del ESP32
-  xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*2, NULL, 1, &xHandle_send_packet, 0);
+  xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*6, NULL, 1, &xHandle_send_packet, 0); //Se modifico la memoria alojada para la tarea, antes era 1024*4
   vTaskSuspend(xHandle_send_packet);
   xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*2, NULL, 1, &xHandle_poll_packet, 0);
   vTaskSuspend(xHandle_poll_packet);
@@ -324,15 +443,3 @@ void setup() {
 void loop() {
   // Do nothing
 }
-
-// //Tarea de FreeRTOS encargada de generar una ISR si recibo un mensaje por LoRa
-// void IRAM_ATTR onReceive(int packetSize) {
-//   //Serial.println("Recibido mensaje");
-//   //vTaskResume(xHandle_poll_packet);
-// }
-
-// //Tarea para crear una ISR en el ESP32 si presiono un boton
-// void IRAM_ATTR onButtonPress() {
-//   //Serial.println("Boton presionado");
-//   //vTaskResume(xHandle_send_packet);
-// }
