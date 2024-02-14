@@ -64,13 +64,21 @@ float bufferZ[NUM_DATOS - 1] = { };
 float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
 float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
 
+//Estructuras de datos
+
+struct BufferTempHumedad{
+  float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
+  float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
+};
+BufferTempHumedad estruc_buffer_datos;
+
 int w = 0; //Contador para la cantidad de datos a guardar en el buffer de temperatura y humedad
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
-  float X[5000];
-  float Y[5000];
-  float Z[5000];
+  float bufferX[NUM_DATOS - 1] = { };
+  float bufferY[NUM_DATOS - 1] = { };
+  float bufferZ[NUM_DATOS - 1] = { };
 };
 
 //Estructura de 2 flotantes para temp&hum
@@ -138,6 +146,8 @@ void leerDatosACL(void *pvParameters){
 }
 
 long int time_elapsed = 0;
+long int tiempo1 = 0;
+long int tiempo2 = 0;
 
 void crearBuffer(void *pvParameters){
   while(true){
@@ -149,6 +159,7 @@ void crearBuffer(void *pvParameters){
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
       if(k<=NUM_DATOS){
+        if(k == 1) tiempo1 = millis();
       buffer_timestamp[k] = millis();
       bufferX[k] = datos_acl.AclX;
       bufferY[k] = datos_acl.AclY;
@@ -157,32 +168,30 @@ void crearBuffer(void *pvParameters){
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
+        tiempo2 = millis();
 
         //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
 
         for(int w = 0; w < 30; w++){
-          printf("Valores de tiempo: %u, X: %f \n", buffer_timestamp[w], bufferX[w]);
+          printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
         }
-        Serial.println(buffer_timestamp[NUM_DATOS - 1]);
-        time_elapsed = (buffer_timestamp[NUM_DATOS - 1] - buffer_timestamp[2]);
 
-        printf("Tiempo transcurrido: %d \n segundos", time_elapsed);
-        //vTaskDelete(xHandle_crearBuffer);
+        time_elapsed = (tiempo2 - tiempo1);
+        printf("Tiempo transcurrido: %d segundos \n", time_elapsed / 1000.0);
 
-        Serial.println("Suspendiendo tarea de recepcion de datos de temoeratura...");
+        Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
         vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
 
         Serial.println();
         Serial.println("Buffer de temperatura y humedad");
-        for(int m = 0; m < 7; m++) {
+        for(int m = 0; m < 8; m++) {
           Serial.print("Temperatura: ");
-          Serial.print(buffertemp[m]);
+          Serial.print(estruc_buffer_datos.buffertemp[m]);
           Serial.print(" ");  
           Serial.print("Humedad: ");
-          Serial.print(bufferhum[m]);
+          Serial.print(estruc_buffer_datos.bufferhum[m]);
           Serial.println(" "); 
         }
-        Serial.println("Me sali del loop");
         vTaskResume(xHandle_blink);
       }
     }
@@ -190,8 +199,8 @@ void crearBuffer(void *pvParameters){
       Serial.println("No se recibio la cola correctamente...");
     };
  
-    Serial.print("k: ");
-    Serial.println(k);
+    // Serial.print("k: ");
+    // Serial.println(k);
 
     //Se suspende esta tarea para esperar la toma de datos
     vTaskSuspend(xHandle_crearBuffer);
@@ -234,6 +243,7 @@ void readBMETask(void *parameter) {
     //Envia los datos a la cola dataQueue
     if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
       //Serial.println("Se envio correctamente la cola de temperatura");
+      vTaskDelay(10 / portTICK_PERIOD_MS); //Este delay permite que las lecturas del sensor sean las correctas
       vTaskResume(xHandle_receive_temphum); //Reactivo tarea de creacion de buffers y promedios
     }
     else{
@@ -250,19 +260,17 @@ float prom_temp = 0;
 float prom_hum = 0;
 int cont = 1;
 int cont2 = 0;
-float buffer_prom[NUM_DATOS_TEMP/10];
+
 // //Tarea de recepcion de datos
 void receive_temphum(void *parameter) {
   while (true) {
     //Recibe la data de la cola y la guarda en una nueva estructura
     BMEData data_temphum;
+    
     float valor_temp_actual;
     float valor_hum_actual;
 
     if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
-        //buffer_timestamp_temp[w] = millis();
-        // buffertemp[w] = data_temphum.temperature;
-        // bufferhum[w] = data_temphum.humidity;
 
     //CALCULO DEL PROMEDIO
         //Guardo las mediciones actuales
@@ -271,12 +279,13 @@ void receive_temphum(void *parameter) {
         //Las agrego al promedio
         prom_temp = valor_temp_actual + prom_temp;
         prom_hum = valor_hum_actual + prom_hum;
-        // printf("El promedio actual de temperatura es: %f \n", prom_temp);
-        // printf("El promedio actual de humedad es: %f \n", prom_temp);
-
         if(cont == 5){
-          buffertemp[cont2] = prom_temp / 5;
-          bufferhum[cont2] = prom_hum / 5;
+         vTaskDelay(1 / portTICK_PERIOD_MS);
+         //SI NO IMPRIMO ESTO EN SERIAL SACA MAL EL PROMEDIO... PROBLEMAS DE VELOCIDAD
+          printf("El  actual de temperatura es: %f \n", valor_temp_actual);
+          printf("El  actual de humedad es: %f \n", valor_hum_actual);
+          estruc_buffer_datos.buffertemp[cont2] = prom_temp / 5;
+          estruc_buffer_datos.bufferhum[cont2] = prom_hum / 5;
           cont = 0; //reinicio el contador de valores obtenidos para sacar promedio
           cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
           prom_temp = 0;
@@ -289,75 +298,6 @@ void receive_temphum(void *parameter) {
     };
     
     vTaskSuspend(NULL); //Suspendo esta tarea hasta que se vuelva a activar desde otra
-
-    // // //Recibo la cola y lo copio en la estructura data_temphum
-    // if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
-    //   if(w < NUM_DATOS_TEMP){
-    //     //Serial.println("Hola");
-    //     buffer_timestamp_temp[w] = millis();
-    //     buffertemp[w] = data_temphum.temperature;
-    //     valor = data_temphum.temperature;
-    //     prom = valor + prom;
-    //     //printf("El promedio actual es: %f \n", prom);
-    //     if(cont == 10){
-    //       buffer_prom[cont2] = prom / 10;
-    //       //printf("Se guardo nuevo valor en buffer promedio: %f \n", buffer_prom[cont2]);
-    //       cont = 0; //reinicio el contador de valores obtenidos
-    //       cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
-    //       prom = 0; //Reinicio el promedio
-    //     }
-    //     cont++;
-    //     bufferhum[w] = data_temphum.humidity;
-    //     w++; 
-    //     //Serial.println(w);
-    //   }
-    //   else{
-    //     Serial.println("Se termino de llenar el buffer de temperatura con exito!!!");
-    //     printf("Valor final de w: %u \n", w);
-
-    //     for(int m = 0; m < 5 ; m++) {
-    //       Serial.print("Timestamp: ");
-    //       Serial.print(buffer_timestamp_temp[m]);
-    //       Serial.print("Temperatura: ");
-    //       Serial.print(buffer_prom[m]);
-    //       Serial.print(" ");  // Espacio entre los valores
-    //       Serial.println(" ");  // Espacio entre los valores
-    //     }
-    //     for(int j = 0; j < 10; j++ ){
-    //       Serial.print("Temperatura medida en los primeros 10: ");
-    //       Serial.println(buffertemp[j]);
-    //     }
-
-
-    //     //Sacar promedio cada 50 valores y llenar nuevo buffer
-
-    //     // Imprime los 20 valores en el puerto serial
-
-    //     // for(int m = 0; m < 10 ; m++) {
-    //     //   Serial.print("Timestamp: ");
-    //     //   Serial.print(buffer_timestamp_temp[m]);
-    //     //   Serial.print("Temperatura: ");
-    //     //   Serial.print(buffertemp[m]);
-    //     //   Serial.print(" ");  // Espacio entre los valores
-    //     //   Serial.print("Humedad: ");
-    //     //   Serial.print(bufferhum[m]);
-    //     //   Serial.println(" ");  // Espacio entre los valores
-    //     //    Serial.print(m);
-    //     //   Serial.println(" ");  // Espacio entre los valores
-    //     // }
-
-    //     //Activa blink
-    //     vTaskResume(xHandle_blink);
-    //     //suspende esta tarea
-    //     vTaskSuspend(xHandle_readBMETask);
-    //     //suspende esta tarea
-    //     vTaskSuspend(NULL);
-    //   }
-    // }
-    // else{
-    //   Serial.println("No se recibio la cola correctamente...");
-    // };
-
   }
 }
 
@@ -370,6 +310,34 @@ void blink(void * pvParameters ) {
         Serial.println("Led apagado");
         delay(1000);
     }
+}
+
+void setup_acl_MPU6050(void){
+  
+  Serial.println("Adafruit MPU6050 test!");
+
+  //Try to initialize!
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050 Found!");
+  //float fmuestreo = 1/(F_SAMPLING*0.001);
+  //printf("La frecuencia de muestreo escogida es: %f \n", fmuestreo);
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+   //Filtro Pasa Alto
+  mpu.setHighPassFilter(MPU6050_HIGHPASS_DISABLE);
+  //Introduce un retardo segun documentacion
+  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
+  mpu.setSampleRateDivisor(0);
+
+  //VER COMO HACER SELFTEST Y CALIBRACION DEL SENSOR MPU6050
+  //REVISAR LIBRERIA DEL SENOR DE GITHUB QUE HACE SELFTEST Y CALIBRACION Y AJUSTAR EL CODIGO AQUI
+
 }
 
 void setup() {
@@ -392,26 +360,7 @@ void setup() {
     }
   }
 
-  Serial.println("Adafruit MPU6050 test!");
-
-  //Try to initialize!
-  if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1) {
-      delay(10);
-    }
-  }
-  Serial.println("MPU6050 Found!");
-  //float fmuestreo = 1/(F_SAMPLING*0.001);
-  //printf("La frecuencia de muestreo escogida es: %f \n", fmuestreo);
-
-  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-   //Filtro Pasa Alto
-  mpu.setHighPassFilter(MPU6050_HIGHPASS_DISABLE);
-  //Introduce un retardo segun documentacion
-  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
-  mpu.setSampleRateDivisor(0);
+  setup_acl_MPU6050();
 
   Wire.setClock(400000);
 
