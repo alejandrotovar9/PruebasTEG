@@ -16,10 +16,12 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 6 - 166 Hz
 7 - 142.85 Hz
 */
-#define F_SAMPLING 3
+#define F_SAMPLING 4
+
+#define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 
 #define NUM_DATOS 2048
-#define NUM_DATOS_TEMP 10
+#define NUM_DATOS_TEMP 100
 // #define CS 5
 
 //Sensor objects
@@ -30,6 +32,10 @@ Adafruit_MPU6050 mpu;
 int ledpin= 26;
 
 // Task handle
+
+/*xTaskCreatePinnedToCore() creates a task and assigns a handle to xHandle_readBMETask. After this line, xHandle_readBMETask will no longer be NULL; it will hold a handle to the readBMETask task.
+
+So, to answer your question, these variables could either be NULL (if they don't yet reference a task), or they could hold a handle to a task.*/
 TaskHandle_t xHandle_readBMETask = NULL;
 TaskHandle_t xHandle_receive_temphum = NULL;
 
@@ -58,6 +64,7 @@ float bufferY[NUM_DATOS - 1] = { };
 float bufferZ[NUM_DATOS - 1] = { };
 
 int w = 0; //Contador para la cantidad de datos a guardar en el buffer de temperatura y humedad
+
 float buffertemp[NUM_DATOS_TEMP - 1] = { };
 float bufferhum[NUM_DATOS_TEMP - 1] = { };
 
@@ -96,35 +103,6 @@ struct ACLData {
 //Variables globales
 int var = 0;
 int k = 0; //Contador para la cantidad de datos a guardar en el array
-
-//Leer BME
-void readBMETask(void *parameter) {
-  while (true) {
-    //Crea una estructura de tipo BMEData
-    BMEData data_readtemp;
-
-    //Lee los valores del sensor y los guarda en la estructura
-    data_readtemp.humidity = bme.readHumidity();
-    data_readtemp.temperature = bme.readTemperature();
-    
-    //Envia los datos a la cola dataQueue
-    if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
-      //Se envio la cola correctamente
-      continue;
-    }
-    else{
-      Serial.println("No se envio correctamente la cola de temperatura");
-    }
-
-    //Delay for 1 second
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-    
-//     if(k<= NUM_DATOS_TEMP){
-//       vTaskResume(xHandle_receive_temphum);
-//     }
-  }
-}
 
 //Contador
 int contador = 0;
@@ -195,10 +173,13 @@ void crearBuffer(void *pvParameters){
           printf("Valores de tiempo: %u, X: %f \n", buffer_timestamp[w], bufferX[w]);
         }
         Serial.println(buffer_timestamp[NUM_DATOS - 1]);
-        time_elapsed = (buffer_timestamp[NUM_DATOS - 1] - buffer_timestamp[2])/1000;
+        time_elapsed = (buffer_timestamp[NUM_DATOS - 1] - buffer_timestamp[2]);
 
         printf("Tiempo transcurrido: %d \n segundos", time_elapsed);
         //vTaskDelete(xHandle_crearBuffer);
+
+        Serial.println("Suspendiendo tarea de recepcion de datos de temoeratura...");
+        vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
       }
     }
     else{
@@ -208,7 +189,7 @@ void crearBuffer(void *pvParameters){
     Serial.print("k: ");
     Serial.println(k);
 
-    //Se suspende la tarea para esperar la toma de datos
+    //Se suspende esta tarea para esperar la toma de datos
     vTaskSuspend(xHandle_crearBuffer);
 
   }
@@ -232,87 +213,158 @@ void recibirDatosACL(void *pvParameters){
   }
 }
 
+
+//Leer BME
+void readBMETask(void *parameter) {
+  while (true) {
+    //Crea una estructura de tipo BMEData
+    BMEData data_readtemp;
+
+    //Lee los valores del sensor y los guarda en la estructura
+    data_readtemp.humidity = bme.readHumidity();
+    data_readtemp.temperature = bme.readTemperature();
+    
+    //Delay dependiendo del tiempo de muestreo
+    vTaskDelay(T_SAMPLING_TEMPHUM / portTICK_PERIOD_MS); //5Hz
+
+    //Envia los datos a la cola dataQueue
+    if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
+      //Serial.println("Se envio correctamente la cola de temperatura");
+      vTaskResume(xHandle_receive_temphum); //Reactivo tarea de creacion de buffers y promedios
+    }
+    else{
+      Serial.println("No se envio correctamente la cola de temperatura");
+    }
+
+    // if(w <= NUM_DATOS_TEMP){
+    //   vTaskResume(xHandle_receive_temphum);
+    // }
+  }
+}
+
+float prom_temp = 0;
+float prom_hum = 0;
+int cont = 1;
+int cont2 = 0;
+float buffer_prom[NUM_DATOS_TEMP/10];
 // //Tarea de recepcion de datos
 void receive_temphum(void *parameter) {
   while (true) {
     //Recibe la data de la cola y la guarda en una nueva estructura
     BMEData data_temphum;
+    float valor_temp_actual;
+    float valor_hum_actual;
 
+    if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
+        buffer_timestamp_temp[w] = millis();
+        // buffertemp[w] = data_temphum.temperature;
+        // bufferhum[w] = data_temphum.humidity;
+
+    //CALCULO DEL PROMEDIO
+        //Guardo las mediciones actuales
+        valor_temp_actual = data_temphum.temperature;
+        valor_hum_actual = data_temphum.humidity;
+        //Las agrego al promedio
+        prom_temp = valor_temp_actual + prom_temp;
+        prom_hum = valor_hum_actual + prom_hum;
+        //printf("El promedio actual es: %f \n", prom);
+        if(cont == 10){
+          buffertemp[cont2] = prom_temp / 10;
+          bufferhum[cont2] = prom_hum / 10;
+          cont = 0; //reinicio el contador de valores obtenidos para sacar promedio
+          cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
+          prom_temp = 0;
+          prom_hum = 0; //Reinicio el promedio
+        }
+        cont++;
+    }
+    else{
+      Serial.println("No se recibio la cola correctamente...");
+    };
+    
+    vTaskSuspend(NULL); //Suspendo esta tarea hasta que se vuelva a activar desde otra
+
+    // // //Recibo la cola y lo copio en la estructura data_temphum
     // if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
-    //     buffer_timestamp[w] = millis();
+    //   if(w < NUM_DATOS_TEMP){
+    //     //Serial.println("Hola");
+    //     buffer_timestamp_temp[w] = millis();
     //     buffertemp[w] = data_temphum.temperature;
+    //     valor = data_temphum.temperature;
+    //     prom = valor + prom;
+    //     //printf("El promedio actual es: %f \n", prom);
+    //     if(cont == 10){
+    //       buffer_prom[cont2] = prom / 10;
+    //       //printf("Se guardo nuevo valor en buffer promedio: %f \n", buffer_prom[cont2]);
+    //       cont = 0; //reinicio el contador de valores obtenidos
+    //       cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
+    //       prom = 0; //Reinicio el promedio
+    //     }
+    //     cont++;
     //     bufferhum[w] = data_temphum.humidity;
     //     w++; 
+    //     //Serial.println(w);
+    //   }
+    //   else{
+    //     Serial.println("Se termino de llenar el buffer de temperatura con exito!!!");
+    //     printf("Valor final de w: %u \n", w);
+
+    //     for(int m = 0; m < 5 ; m++) {
+    //       Serial.print("Timestamp: ");
+    //       Serial.print(buffer_timestamp_temp[m]);
+    //       Serial.print("Temperatura: ");
+    //       Serial.print(buffer_prom[m]);
+    //       Serial.print(" ");  // Espacio entre los valores
+    //       Serial.println(" ");  // Espacio entre los valores
+    //     }
+    //     for(int j = 0; j < 10; j++ ){
+    //       Serial.print("Temperatura medida en los primeros 10: ");
+    //       Serial.println(buffertemp[j]);
+    //     }
+
+
+    //     //Sacar promedio cada 50 valores y llenar nuevo buffer
+
+    //     // Imprime los 20 valores en el puerto serial
+
+    //     // for(int m = 0; m < 10 ; m++) {
+    //     //   Serial.print("Timestamp: ");
+    //     //   Serial.print(buffer_timestamp_temp[m]);
+    //     //   Serial.print("Temperatura: ");
+    //     //   Serial.print(buffertemp[m]);
+    //     //   Serial.print(" ");  // Espacio entre los valores
+    //     //   Serial.print("Humedad: ");
+    //     //   Serial.print(bufferhum[m]);
+    //     //   Serial.println(" ");  // Espacio entre los valores
+    //     //    Serial.print(m);
+    //     //   Serial.println(" ");  // Espacio entre los valores
+    //     // }
+
+    //     //Activa blink
+    //     vTaskResume(xHandle_blink);
+    //     //suspende esta tarea
+    //     vTaskSuspend(xHandle_readBMETask);
+    //     //suspende esta tarea
+    //     vTaskSuspend(NULL);
+    //   }
     // }
     // else{
     //   Serial.println("No se recibio la cola correctamente...");
     // };
 
-    // //Recibo la cola y lo copio en la estructura data_temphum
-    if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
-      if(w < NUM_DATOS_TEMP){
-        buffer_timestamp_temp[w] = millis();
-        buffertemp[w] = data_temphum.temperature;
-        bufferhum[w] = data_temphum.humidity;
-        w++; 
-      }
-      else{
-        Serial.println("Se termino de llenar el buffer de temperatura con exito!!!");
-        printf("Valor final de w: %u \n", w);
-
-        // Imprime los 20 valores en el puerto serial
-        for(int i = 0; i < NUM_DATOS_TEMP; i++) {
-          Serial.print("Timestamp: ");
-          Serial.print(buffer_timestamp_temp[i]);
-          Serial.print("Temperatura: ");
-          Serial.print(buffertemp[i]);
-          Serial.print(" ");  // Espacio entre los valores
-          Serial.print("Humedad: ");
-          Serial.print(bufferhum[i]);
-          Serial.println(" ");  // Espacio entre los valores
-        }
-
-        //Activa blink
-        vTaskResume(xHandle_blink);
-        //suspende esta tarea
-        //vTaskDelete(xHandle_readBMETask);
-        //suspende esta tarea
-        //vTaskDelete(NULL);
-
-        // //se envia cola a otra tarea con el buffer lleno de datos y timestamp
-        // if(xQueueSend(bufferQueue, &bufferX, portMAX_DELAY) == pdTRUE){
-        //   Serial.println("Se envio la cola a la tarea X.");
-        // }
-        // else{
-        //   Serial.println("Problema al enviar cola...");
-        // }
-        // //vTaskDelete(xHandle_crearBuffer);
-      }
-    }
-    else{
-      Serial.println("No se recibio la cola correctamente...");
-    };
-
-     vTaskSuspend(NULL);
   }
 }
 
-// void wifiInit() {
-//     Serial.print("Conectándose a ");
-//     Serial.println(ssid);
-
-//     WiFi.begin(ssid, password);
-
-//     while (WiFi.status() != WL_CONNECTED) {
-//       Serial.print(".");
-//         vTaskDelay(500 / portTICK_PERIOD_MS);  
-//     }
-//     Serial.println("");
-//     Serial.println("Conectado a WiFi");
-//     Serial.println("Dirección IP: ");
-//     Serial.println(WiFi.localIP());
-//   }
-
+void blink(void * pvParameters ) {
+    while (1) {
+        digitalWrite(BUILTIN_LED, HIGH);
+        Serial.println("Led encendido");
+        delay(1000);
+        digitalWrite(BUILTIN_LED, LOW);
+        Serial.println("Led apagado");
+        delay(1000);
+    }
+}
 
 void setup() {
 
@@ -326,13 +378,13 @@ void setup() {
   aclQueue = xQueueCreate(3, sizeof(ACLData));
   bufferQueue = xQueueCreate(3, sizeof(ACLData));
 
-  // // Initialize the BME280 sensor
-  // while(!bme.begin(0x76)) {
-  //   Serial.println("Could not find BME280 sensor!");
-  //   while (1){
-  //     delay(10);
-  //   }
-  // }
+  // Initialize the BME280 sensor
+  while(!bme.begin(0x76)) {
+    Serial.println("Could not find BME280 sensor!");
+    while (1){
+      delay(10);
+    }
+  }
 
   Serial.println("Adafruit MPU6050 test!");
 
@@ -359,9 +411,10 @@ void setup() {
 
   //Creacion de tareas
     //Tareas a ejecutarse en el Nucleo 1
-    //xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 0, &xHandle_readBMETask, 1);
-    //xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 0, &xHandle_receive_temphum, 1);
-   //vTaskSuspend(xHandle_receive_temphum);
+    xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 0, &xHandle_readBMETask, 0);
+    xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 0, &xHandle_receive_temphum, 0);
+    xTaskCreatePinnedToCore(blink, "readBMETask", 1024*2, NULL, 0, &xHandle_blink, 0);
+    vTaskSuspend(xHandle_blink);
   
    
     //Tareas a ejecutarse en el Nucleo 0
