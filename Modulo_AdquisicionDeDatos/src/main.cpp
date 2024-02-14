@@ -21,7 +21,7 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 
 #define NUM_DATOS 2048
-#define NUM_DATOS_TEMP 100
+#define NUM_DATOS_TEMP 50
 // #define CS 5
 
 //Sensor objects
@@ -56,21 +56,15 @@ QueueHandle_t bufferQueue;
 sensors_event_t a, g, tem;
 
 //Buffers
-ushort buffer_timestamp[NUM_DATOS - 1] = {};
-ushort buffer_timestamp_temp[NUM_DATOS_TEMP - 1] = {};
-
+long int buffer_timestamp[NUM_DATOS - 1] = {};
+long int buffer_timestamp_temp[NUM_DATOS_TEMP - 1] = {};
 float bufferX[NUM_DATOS - 1] = { };
 float bufferY[NUM_DATOS - 1] = { };
 float bufferZ[NUM_DATOS - 1] = { };
+float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
+float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
 
 int w = 0; //Contador para la cantidad de datos a guardar en el buffer de temperatura y humedad
-
-float buffertemp[NUM_DATOS_TEMP - 1] = { };
-float bufferhum[NUM_DATOS_TEMP - 1] = { };
-
-// //Pines para I2C
-// #define I2C_SDA  
-// #define I2C_SCL  
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
@@ -99,13 +93,10 @@ struct ACLData {
 //   float Z[NUM_DATOS - 1];
 // };
 
-
 //Variables globales
 int var = 0;
 int k = 0; //Contador para la cantidad de datos a guardar en el array
 
-//Contador
-int contador = 0;
 
 void leerDatosACL(void *pvParameters){
   // /* Get new sensor events with the readings */
@@ -180,6 +171,19 @@ void crearBuffer(void *pvParameters){
 
         Serial.println("Suspendiendo tarea de recepcion de datos de temoeratura...");
         vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
+
+        Serial.println();
+        Serial.println("Buffer de temperatura y humedad");
+        for(int m = 0; m < 7; m++) {
+          Serial.print("Temperatura: ");
+          Serial.print(buffertemp[m]);
+          Serial.print(" ");  
+          Serial.print("Humedad: ");
+          Serial.print(bufferhum[m]);
+          Serial.println(" "); 
+        }
+        Serial.println("Me sali del loop");
+        vTaskResume(xHandle_blink);
       }
     }
     else{
@@ -256,7 +260,7 @@ void receive_temphum(void *parameter) {
     float valor_hum_actual;
 
     if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
-        buffer_timestamp_temp[w] = millis();
+        //buffer_timestamp_temp[w] = millis();
         // buffertemp[w] = data_temphum.temperature;
         // bufferhum[w] = data_temphum.humidity;
 
@@ -267,10 +271,12 @@ void receive_temphum(void *parameter) {
         //Las agrego al promedio
         prom_temp = valor_temp_actual + prom_temp;
         prom_hum = valor_hum_actual + prom_hum;
-        //printf("El promedio actual es: %f \n", prom);
-        if(cont == 10){
-          buffertemp[cont2] = prom_temp / 10;
-          bufferhum[cont2] = prom_hum / 10;
+        // printf("El promedio actual de temperatura es: %f \n", prom_temp);
+        // printf("El promedio actual de humedad es: %f \n", prom_temp);
+
+        if(cont == 5){
+          buffertemp[cont2] = prom_temp / 5;
+          bufferhum[cont2] = prom_hum / 5;
           cont = 0; //reinicio el contador de valores obtenidos para sacar promedio
           cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
           prom_temp = 0;
