@@ -7,35 +7,25 @@
 #include <Arduino.h>
 
 /*
+Maximum delay time is 4.9 ms corresponding to just over 200 Hz sample rate
 Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 1 - 1 KHz
 2 - 500 Hz
 3 - 333 Hz
 4 - 250 Hz
 5 - 200 Hz
-6 - 166 Hz
-7 - 142.85 Hz
 */
 #define F_SAMPLING 4
-
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
-
 #define NUM_DATOS 2048
-#define NUM_DATOS_TEMP 50
-// #define CS 5
+#define MEAN_INTERVAL 5
+#define NUM_DATOS_TEMP 200
 
 //Sensor objects
 Adafruit_BME280 bme;
 Adafruit_MPU6050 mpu;
 
-//Definicion de pines a utilizar
-int ledpin= 26;
-
 // Task handle
-
-/*xTaskCreatePinnedToCore() creates a task and assigns a handle to xHandle_readBMETask. After this line, xHandle_readBMETask will no longer be NULL; it will hold a handle to the readBMETask task.
-
-So, to answer your question, these variables could either be NULL (if they don't yet reference a task), or they could hold a handle to a task.*/
 TaskHandle_t xHandle_readBMETask = NULL;
 TaskHandle_t xHandle_receive_temphum = NULL;
 
@@ -61,8 +51,10 @@ long int buffer_timestamp_temp[NUM_DATOS_TEMP - 1] = {};
 float bufferX[NUM_DATOS - 1] = { };
 float bufferY[NUM_DATOS - 1] = { };
 float bufferZ[NUM_DATOS - 1] = { };
-float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
-float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
+
+//OJO ACOMODAR EL TAMANO DE ESTOS BUFFERS
+float buffertemp[NUM_DATOS_TEMP - 1] = { };
+float bufferhum[NUM_DATOS_TEMP - 1] = { };
 
 //Estructuras de datos
 
@@ -76,6 +68,7 @@ int w = 0; //Contador para la cantidad de datos a guardar en el buffer de temper
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
+  long int buffer_timestamp[NUM_DATOS - 1] = {};
   float bufferX[NUM_DATOS - 1] = { };
   float bufferY[NUM_DATOS - 1] = { };
   float bufferZ[NUM_DATOS - 1] = { };
@@ -104,7 +97,6 @@ struct ACLData {
 //Variables globales
 int var = 0;
 int k = 0; //Contador para la cantidad de datos a guardar en el array
-
 
 void leerDatosACL(void *pvParameters){
   // /* Get new sensor events with the readings */
@@ -137,17 +129,16 @@ void leerDatosACL(void *pvParameters){
       }
 
       //vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
-
-      //Para ejecutar una sola vez mas para ver contenidos
-      // if(k<=5001){
-      //   vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
-      // }
   }
 }
 
 long int time_elapsed = 0;
 long int tiempo1 = 0;
 long int tiempo2 = 0;
+
+//Solo funciona la estructura de aceleracion si la declaro como global
+//Si la declaro dentro de la tarea no guarda los datos en los buffers respectivos
+BufferACL struct_buffer_acl;
 
 void crearBuffer(void *pvParameters){
   while(true){
@@ -158,22 +149,23 @@ void crearBuffer(void *pvParameters){
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if(k<=NUM_DATOS){
+      if( k <= NUM_DATOS){
         if(k == 1) tiempo1 = millis();
-      buffer_timestamp[k] = millis();
-      bufferX[k] = datos_acl.AclX;
-      bufferY[k] = datos_acl.AclY;
-      bufferZ[k] = datos_acl.AclZ;
-      k++;
+        struct_buffer_acl.buffer_timestamp[k] = millis();
+        struct_buffer_acl.bufferX[k] = datos_acl.AclX;
+        struct_buffer_acl.bufferY[k] = datos_acl.AclY;
+        struct_buffer_acl.bufferZ[k] = datos_acl.AclZ;
+        // bufferX[k] = datos_acl.AclX;
+        // bufferY[k] = datos_acl.AclY;
+        // bufferZ[k] = datos_acl.AclZ;
+        k++;
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
         tiempo2 = millis();
 
-        //AQUI SE INICIA LA TAREA PARA GUARDAR EN SD
-
         for(int w = 0; w < 30; w++){
-          printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", buffer_timestamp[w], bufferX[w], bufferY[w], bufferZ[w]);
+          printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
         }
 
         time_elapsed = (tiempo2 - tiempo1);
@@ -226,7 +218,6 @@ void recibirDatosACL(void *pvParameters){
   }
 }
 
-
 //Leer BME
 void readBMETask(void *parameter) {
   while (true) {
@@ -236,9 +227,6 @@ void readBMETask(void *parameter) {
     //Lee los valores del sensor y los guarda en la estructura
     data_readtemp.humidity = bme.readHumidity();
     data_readtemp.temperature = bme.readTemperature();
-    
-    //Delay dependiendo del tiempo de muestreo
-    vTaskDelay(T_SAMPLING_TEMPHUM / portTICK_PERIOD_MS); //5Hz
 
     //Envia los datos a la cola dataQueue
     if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
@@ -249,6 +237,9 @@ void readBMETask(void *parameter) {
     else{
       Serial.println("No se envio correctamente la cola de temperatura");
     }
+
+    //Delay dependiendo del tiempo de muestreo
+    vTaskDelay(T_SAMPLING_TEMPHUM / portTICK_PERIOD_MS); //5Hz
 
     // if(w <= NUM_DATOS_TEMP){
     //   vTaskResume(xHandle_receive_temphum);
@@ -267,8 +258,8 @@ void receive_temphum(void *parameter) {
     //Recibe la data de la cola y la guarda en una nueva estructura
     BMEData data_temphum;
     
-    float valor_temp_actual;
-    float valor_hum_actual;
+    float valor_temp_actual = 0;
+    float valor_hum_actual = 0;
 
     if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
 
@@ -279,13 +270,15 @@ void receive_temphum(void *parameter) {
         //Las agrego al promedio
         prom_temp = valor_temp_actual + prom_temp;
         prom_hum = valor_hum_actual + prom_hum;
-        if(cont == 5){
+
+        if(cont >= MEAN_INTERVAL){
          vTaskDelay(1 / portTICK_PERIOD_MS);
-         //SI NO IMPRIMO ESTO EN SERIAL SACA MAL EL PROMEDIO... PROBLEMAS DE VELOCIDAD
+         //SI NO IMPRIMO ESTO EN SERIAL SACA MAL EL PROMEDIO... PROBLEMAS DE VELOCIDAD?
           printf("El  actual de temperatura es: %f \n", valor_temp_actual);
           printf("El  actual de humedad es: %f \n", valor_hum_actual);
-          estruc_buffer_datos.buffertemp[cont2] = prom_temp / 5;
-          estruc_buffer_datos.bufferhum[cont2] = prom_hum / 5;
+          estruc_buffer_datos.buffertemp[cont2] = prom_temp / cont;
+          estruc_buffer_datos.bufferhum[cont2] = prom_hum / cont;
+
           cont = 0; //reinicio el contador de valores obtenidos para sacar promedio
           cont2++; //Sumo 1  a este contador para guardar en siguiente posicion
           prom_temp = 0;
@@ -313,27 +306,58 @@ void blink(void * pvParameters ) {
 }
 
 void setup_acl_MPU6050(void){
+
+  int16_t accelCount[3];           // Stores the 16-bit signed accelerometer sensor output
+  float gyroBias[3], accelBias[3]; // Bias corrections for gyro and accelerometer
+  float SelfTest[6];               // Gyro and accelerometer self-test sensor output
+  uint32_t count = 0;
   
-  Serial.println("Adafruit MPU6050 test!");
+  Serial.println("Inicializacion del Adafruit MPU6050!");
 
   //Try to initialize!
   if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
+    Serial.println("Fallo al encontrar el MPU6050");
     while (1) {
       delay(10);
     }
   }
-  Serial.println("MPU6050 Found!");
+
+  Serial.println("MPU6050 encontrado!");
+  Serial.println("MPU6050");
+  Serial.println("6-DOF 16-bit");
+  Serial.println("motion sensor");
+  Serial.println("60 ug LSB");
   //float fmuestreo = 1/(F_SAMPLING*0.001);
   //printf("La frecuencia de muestreo escogida es: %f \n", fmuestreo);
+
+  // mpu.MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
+  //   Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0],1); Serial.println("% of factory value");
+  //   Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1],1); Serial.println("% of factory value");
+  //   Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2],1); Serial.println("% of factory value");
+  //   Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
+  //   Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
+  //   Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
+
+  //   /*EL BIAS HABRIA QUE RESTARSELO A LOS VALORES DE ACLERACION OBTENIDOS EN CADA EJE
+  //   // Now we'll calculate the accleration value into actual g's
+  //   ax = (float)accelCount[0]*aRes - accelBias[0];  // get actual g value, this depends on scale being set
+  //   ay = (float)accelCount[1]*aRes - accelBias[1];   
+  //   az = (float)accelCount[2]*aRes - accelBias[2]; 
+  //   */
+
+  //   if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) {
+  //   Serial.println("Pass Selftest!");  
+      
+  //   mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
+   //}
 
   mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
    //Filtro Pasa Alto
   mpu.setHighPassFilter(MPU6050_HIGHPASS_DISABLE);
   //Introduce un retardo segun documentacion
-  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ);
-  mpu.setSampleRateDivisor(0);
+  mpu.setFilterBandwidth(MPU6050_BAND_260_HZ); //GYRO OUTPUT RATE is 1KHz when DLPF enabled
+  mpu.setSampleRateDivisor(0); //Sample Rate = 1KHz/(1 + SMPLRT_DIV)
 
   //VER COMO HACER SELFTEST Y CALIBRACION DEL SENSOR MPU6050
   //REVISAR LIBRERIA DEL SENOR DE GITHUB QUE HACE SELFTEST Y CALIBRACION Y AJUSTAR EL CODIGO AQUI
@@ -342,13 +366,14 @@ void setup_acl_MPU6050(void){
 
 void setup() {
 
+
   //se configura puerto serial
   vTaskDelay(1000 / portTICK_PERIOD_MS);
   Serial.begin(115200);
   vTaskDelay(1000 / portTICK_PERIOD_MS);
 
   //Creacion de las colas
-  data_temphumQueue = xQueueCreate(2, sizeof(BMEData));
+  data_temphumQueue = xQueueCreate(1, sizeof(BMEData));
   aclQueue = xQueueCreate(3, sizeof(ACLData));
   bufferQueue = xQueueCreate(3, sizeof(ACLData));
 
@@ -360,22 +385,23 @@ void setup() {
     }
   }
 
+  //bme.setSampling();
+
   setup_acl_MPU6050();
 
   Wire.setClock(400000);
 
   //Creacion de tareas
     //Tareas a ejecutarse en el Nucleo 1
-    xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 0, &xHandle_readBMETask, 0);
-    xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 0, &xHandle_receive_temphum, 0);
-    xTaskCreatePinnedToCore(blink, "readBMETask", 1024*2, NULL, 0, &xHandle_blink, 0);
+    xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 0);
+    xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 1, &xHandle_receive_temphum, 0);
+    xTaskCreatePinnedToCore(blink, "readBMETask", 1024, NULL, 1, &xHandle_blink, 0);
     vTaskSuspend(xHandle_blink);
   
    
     //Tareas a ejecutarse en el Nucleo 0
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
     xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
-    //xTaskCreatePinnedToCore(recibirDatosACL, "recibirDatosACL", 1024*2, NULL, 2, &xHandle_recibirDatosACL, 0);
 }
 
 void loop() {
