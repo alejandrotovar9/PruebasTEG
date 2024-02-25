@@ -18,11 +18,16 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 */
 #define F_SAMPLING 4
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
-#define T_SAMPLING_INC 1000     //frecuencia = Hz
+#define T_SAMPLING_INC 100     //frecuencia = Hz
 #define NUM_DATOS 2048
 #define MEAN_INTERVAL 5
 #define NUM_DATOS_TEMP 200
-#define NUM_DATOS_INC 400
+#define NUM_DATOS_INC 800
+
+//Valores limite 15 aceleracion en m/s^2
+#define LIM_ACLX 15.0
+#define LIM_ACLY 15.0
+#define LIM_ACLZ 15.0
 
 //Sensor objects
 Adafruit_BME280 bme;
@@ -50,19 +55,8 @@ QueueHandle_t aclQueue;
 QueueHandle_t bufferQueue;
 QueueHandle_t incQueue;
 
-//Variable global
+//Variable de eventos MPU6050
 sensors_event_t a, g, tem;
-
-//Buffers
-long int buffer_timestamp[NUM_DATOS - 1] = {};
-long int buffer_timestamp_temp[NUM_DATOS_TEMP - 1] = {};
-float bufferX[NUM_DATOS - 1] = { };
-float bufferY[NUM_DATOS - 1] = { };
-float bufferZ[NUM_DATOS - 1] = { };
-
-//OJO ACOMODAR EL TAMANO DE ESTOS BUFFERS
-float buffertemp[NUM_DATOS_TEMP - 1] = { };
-float bufferhum[NUM_DATOS_TEMP - 1] = { };
 
 //Estructuras de datos
 
@@ -70,7 +64,6 @@ struct BufferTempHumedad{
   float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
   float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
 };
-
 BufferTempHumedad estruc_buffer_datos;
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
@@ -80,8 +73,6 @@ struct BufferACL{
   float bufferY[NUM_DATOS - 1] = { };
   float bufferZ[NUM_DATOS - 1] = { };
 };
-//Solo funciona la estructura de aceleracion si la declaro como global
-//Si la declaro dentro de la tarea no guarda los datos en los buffers respectivos
 BufferACL struct_buffer_acl;
 
 struct BufferInclinacion{
@@ -89,7 +80,6 @@ struct BufferInclinacion{
   float bufferPitch[NUM_DATOS_INC/5 - 1] = { };
   float bufferYaw[NUM_DATOS_INC/5 - 1] = { };
 };
-
 BufferInclinacion estruc_buffer_inclinacion;
 
 //Estructura de 2 flotantes para temp&hum
@@ -133,21 +123,56 @@ int cont2 = 0;
 float prom_roll = 0, prom_pitch = 0, prom_yaw = 0;
 int cont_inc = 0, cont2_inc = 1;
 
+//Variables para el Delay Until
+TickType_t xLastWakeTime;
+
+int evaluar_limites_acl(float aclX, float aclY, float aclZ){
+  //Funcion para evaluar los valores de las variables de entrada y tomar decisiones si pasan de ciertos valores
+  // switch(aclX > LIM_ACLX | aclY > LIM_ACLY | aclZ > LIM_ACLZ){
+  //   case true: Serial.println("Un acelerometro supero el limite");
+  //   break;
+  //   case default
+  // }
+  
+  if(aclX >= LIM_ACLX){
+    printf("El acelerometro en el eje X supero los %f m/s \n", LIM_ACLX);
+    return 1;
+  }
+  if(aclY >= LIM_ACLY){
+    printf("El acelerometro en el eje Y supero los %f m/s \n", LIM_ACLY);
+    return 2;
+  }
+  if(aclZ > LIM_ACLZ){
+    printf("El acelerometro en el eje Z supero los %f m/s \n", LIM_ACLZ);
+    return 3;
+  }
+  else{
+    return 0;
+  }
+
+}
+
+int flag_limite = 0;
 
 void leerDatosACL(void *pvParameters){
   //Leer los valores del Acelerometro de la IMU
   while(true){
 
-      //EnableInt(); //Activamos interrupcion
+
 
       mpu.getEvent(&a, &g, &tem);
 
       ACLData aclData; //Estructura a ser llenada con 3 ejes
 
       //Se llena estructura con datos nuevos en m/s^2 ya que estan multiplicados por la ctte SENSORS_GRAVITY_EARTH, si se quieren en g se divide por esta constante
-      aclData.AclX = a.acceleration.x/SENSORS_GRAVITY_EARTH;
-      aclData.AclY = a.acceleration.y/SENSORS_GRAVITY_EARTH; 
-      aclData.AclZ = a.acceleration.z/SENSORS_GRAVITY_EARTH;
+
+      /*/ SENSORS_GRAVITY_EARTH
+        / SENSORS_GRAVITY_EARTH
+        / SENSORS_GRAVITY_EARTH*/
+
+      aclData.AclX = a.acceleration.x;
+      aclData.AclY = a.acceleration.y; 
+      aclData.AclZ = a.acceleration.z;
 
       //La data esta llenando los registros a 1KHz por la configuracion del sensor, sin embargo, se esta muestreando mas lento por la naturaleza de los sistemas en estudio
 
@@ -157,67 +182,51 @@ void leerDatosACL(void *pvParameters){
         //xTaskDelayUntil
       }
       
-      /*Aqui puede ir la evaluacion de los valores limite para tomar una decision en caso de que los mismos sobrepasen cierto valor
-      Podria implementarse lo de High, HighHigh como en instrumentacion/PLC para la toma de decisiones sobre si tomar un registro de datos para enviarlo o no.
-      1. Los datos estan dentro de los valores normales y no es hora de enviar un registro (no se llenan las estructuras/no se crean los buffers, sigo midiendo)
-      2. Los datos estan por encima de los valores normales, tomo un registro y lo envio a la estacion base, luego espero un tiempo prudencial y vuelvo a leer datos de forma continua sin mandar nada
-      3. Los datos estan dentro de los valores normales pero es hora de enviar un registro. Se llenan las estructuras y se prepara la trama para enviar. Una vez enviado, se regresa al modo de operacion normal en el que esta leyendo datos constantemente
-      4. Se pide un registro de datos inmediato desde estacion base. En este caso, si estaba tomando un registro de datos lo termino de tomar y lo envio. Si no, empiezo a crear un registro llenando las estructuras y lo envio.
+      if(flag_limite == 0){
+        flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
+        if (flag_limite != 0){
+          //Se ejecuta una sola vez
+          Serial.println("Se supero un limite de aceleracion, tomar accion!!!");
+        }
+      }
 
-      Puede ser con un switch case y unos valores de return llamando a una funcion externa que se encargue de manejar los casos dependiendo de los valores de aceleracion medidos y el modo de operacion recibido.
-      */
-
-
-      //Envia los datos a la cola aclQueue
-      if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
+      if(flag_limite != 0){
+        //Se supero un limite tomar accion
+        //Serial.println("Se supero un limite de aceleracion, tomar accion!!!");
+        //Comienza el registro de datos
+        if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
         //Serial.println("Se envio la cola con datos...");
         vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
+        }
+        else{
+          Serial.println("No se envio la cola...");
+        }
       }
       else{
-        Serial.println("No se envio la cola...");
+        //Datos dentro de valores normales
+        continue;
       }
+
+      //Envia los datos a la cola aclQueue
+      // if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
+      //   //Serial.println("Se envio la cola con datos...");
+      //   vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
+      // }
+      // else{
+      //   Serial.println("No se envio la cola...");
+      // }
 
       //vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
   }
 }
 
-void crearBuffer(void *pvParameters){
-  while(true){
-
-    //Buffer a llenar
-    //BufferACL buffer;
-    ACLData datos_acl;
-
-    //Recibo los datos de la cola y los guardo en la estructura creada
-    if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if( k <= NUM_DATOS){
-        if(k == 1) tiempo1 = millis();
-        struct_buffer_acl.buffer_timestamp[k] = millis();
-        struct_buffer_acl.bufferX[k] = datos_acl.AclX;
-        struct_buffer_acl.bufferY[k] = datos_acl.AclY;
-        struct_buffer_acl.bufferZ[k] = datos_acl.AclZ;
-        // bufferX[k] = datos_acl.AclX;
-        // bufferY[k] = datos_acl.AclY;
-        // bufferZ[k] = datos_acl.AclZ;
-        k++;
-      }
-      else{
-        Serial.println("Se termino de llenar la estructura con exito!!!");
-        tiempo2 = millis();
-
-        for(int w = 2020; w < 2047; w++){
+void mostrar_resultados(void){
+  for(int w = 2020; w < 2047; w++){
           printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
         }
 
-        // printf("Valores de tiempo a restar: %u, %u \n", struct_buffer_acl.buffer_timestamp[2047], struct_buffer_acl.buffer_timestamp[0]);
-
         time_elapsed = (struct_buffer_acl.buffer_timestamp[NUM_DATOS-1] - struct_buffer_acl.buffer_timestamp[0]);
         printf("Tiempo transcurrido: %d milisegundos \n", time_elapsed);
-
-        Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
-        vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
-        Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
-        vTaskSuspend(xHandle_readMPU9250);
 
         Serial.println();
         Serial.println("Buffer de temperatura y humedad");
@@ -241,6 +250,37 @@ void crearBuffer(void *pvParameters){
           Serial.print(estruc_buffer_inclinacion.bufferYaw[j]);
           Serial.println(" "); 
         }
+}
+
+void crearBuffer(void *pvParameters){
+  while(true){
+
+    //Buffer a llenar
+    //BufferACL buffer;
+    ACLData datos_acl;
+
+    //Recibo los datos de la cola y los guardo en la estructura creada
+    if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
+      if( k <= NUM_DATOS){
+        if(k == 1) tiempo1 = millis();
+        struct_buffer_acl.buffer_timestamp[k] = millis();
+        struct_buffer_acl.bufferX[k] = datos_acl.AclX;
+        struct_buffer_acl.bufferY[k] = datos_acl.AclY;
+        struct_buffer_acl.bufferZ[k] = datos_acl.AclZ;
+        k++;
+      }
+      else{
+        Serial.println("Se termino de llenar la estructura con exito!!!");
+
+        Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
+        vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
+        Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
+        vTaskSuspend(xHandle_readMPU9250);
+        Serial.println("Reiniciando bandera de limite...");
+        flag_limite = 0;
+
+        mostrar_resultados();
+
         vTaskResume(xHandle_blink);
       }
     }
@@ -251,24 +291,6 @@ void crearBuffer(void *pvParameters){
     //Se suspende esta tarea para esperar la toma de datos
     vTaskSuspend(xHandle_crearBuffer);
 
-  }
-}
-
-//Recibir datos del acelerometro
-void recibirDatosACL(void *pvParameters){
-  while(true){
-        // //Para graficar con teleplot
-    ACLData aclData2;
-    xQueueReceive(aclQueue, &aclData2, portMAX_DELAY);
-
-    Serial.print(">Acceleration X:");
-    Serial.println(aclData2.AclX);
-    Serial.println(",");
-    Serial.print(">Acceleration Y:");
-    Serial.println(aclData2.AclY);
-    // //Serial.print(",");
-    // Serial.print(">Acceleration Z:");
-    // Serial.println(aclData2.AclZ);
   }
 }
 
@@ -317,8 +339,6 @@ void receive_temphum(void *parameter) {
         prom_hum = valor_hum_actual + prom_hum;
 
         if(cont >= MEAN_INTERVAL){
-         //vTaskDelay(1 / portTICK_PERIOD_MS); //OJO
-         //SI NO IMPRIMO ESTO EN SERIAL SACA MAL EL PROMEDIO... PROBLEMAS DE VELOCIDAD?
           // printf("El  actual de temperatura es: %f \n", valor_temp_actual);
           // printf("El  actual de humedad es: %f \n", valor_hum_actual);
           //printf("El contador actual para calcular el promedio es: %i \n", cont);
@@ -339,9 +359,6 @@ void receive_temphum(void *parameter) {
     vTaskSuspend(NULL); //Suspendo esta tarea hasta que se vuelva a activar desde otra
   }
 }
-
-//Variables para el Delay Until
-TickType_t xLastWakeTime;
 
 //Tarea de recepcion de datos de MPU9250
 void readMPU9250(void *pvParameters){
@@ -372,7 +389,7 @@ void readMPU9250(void *pvParameters){
             Serial.println("No se envio correctamente la cola de inclinacion");
           }
 
-          vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS)
+          vTaskDelayUntil(&xLastWakeTime, T_SAMPLING_INC / portTICK_PERIOD_MS)
        }
 
     //vTaskDelay(T_SAMPLING_INC / portTICK_PERIOD_MS); //5Hz
