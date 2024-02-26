@@ -2,7 +2,15 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
+TaskHandle_t xHandle_Task1;
+TaskHandle_t Task2;
+
+QueueHandle_t xQueue;
+QueueHandle_t xQueue2;
 
 float GyroX, GyroY, GyroZ;
 float RateRoll, RatePitch;
@@ -14,6 +22,75 @@ float Kalman1DOutput[] = {0,0};
 
 
 MPU9250 mpu;
+
+//Estructura para almacenar los valores de yaw, pitch y roll
+struct Data{
+  float yaw;
+  float pitch;
+  float roll;
+};
+
+
+//Variables para el Delay Until
+TickType_t xLastWakeTime;
+
+//Funcion para medir cada cuanto se ejecuta Task1
+void Task2code( void * pvParameters ){
+  for(;;){
+    vTaskResume(xHandle_Task1);
+    vTaskDelayUntil(&xLastWakeTime, 1000 / portTICK_PERIOD_MS);
+    vTaskSuspend(xHandle_Task1);
+  }
+}
+
+
+//Tarea de FreeRTOS para guardar los valores de yaw, pitch y roll
+
+
+void Task1code( void * pvParameters ){
+  for(;;){
+    if(mpu.update()){
+      //Llenando la estructura 
+      Data data;
+      data.yaw = mpu.getYaw();
+      data.pitch = mpu.getPitch();
+      data.roll = mpu.getRoll();
+
+      //Enviando los valores a la cola
+      //xQueueSend(xQueue, &data, portMAX_DELAY);
+
+      //Imprimiendo los valores de Yaw, Pitch y Roll
+        Serial.println("Roll Pitch Yaw");
+        Serial.print(mpu.getRoll(), 2);
+        Serial.print(" ");
+        Serial.print(mpu.getPitch(), 2);
+        Serial.print(" ");
+        Serial.println(mpu.getYaw(), 2);
+
+        vTaskDelayUntil(&xLastWakeTime, 80 / portTICK_PERIOD_MS);
+    }
+  
+  //vTaskDelay(1000 / portTICK_PERIOD_MS);
+  }
+}
+
+//Creacion de buffer para guardar datos
+float buffer[1000];
+
+//Tarea de FreeRTOS para recibir los valores en una cola y guardarlos en un buffer
+// void Task2code( void * pvParameters ){
+//   for(;;){
+//     //Recibiendo valores de la cola
+//     Data data;
+//     xQueueReceive(xQueue, &data, portMAX_DELAY);
+  
+//     //Guardando valores de yaw pitch y roll en un buffer
+//     buffer[0] = data.yaw;
+//     buffer[1] = data.pitch;
+//     buffer[2] = data.roll;
+
+//   }
+// }
 
 void print_calibration() {
     Serial.println("< calibration parameters >");
@@ -49,12 +126,20 @@ void print_calibration() {
 
 void print_roll_pitch_yaw()
 {
+  //Print Roll Pitch and Yaw in columns
+  Serial.println("Roll Pitch Yaw");
+  Serial.print(mpu.getRoll(), 2);
+  Serial.print(" ");
+  Serial.print(mpu.getPitch(), 2);
+  Serial.print(" ");
+  Serial.println(mpu.getYaw(), 2);
+
   // Serial.print(">Yaw:");
   // Serial.println(mpu.getYaw(), 2);
   // Serial.print(">Pitch:");
   // Serial.println(mpu.getPitch(), 2);
-  Serial.print(">RollMadgwick:");
-  Serial.println(mpu.getRoll(), 2);
+  // Serial.print(">RollMadgwick:");
+  // Serial.println(mpu.getRoll(), 2);
 }
 
 void print_acceleration()
@@ -152,6 +237,11 @@ void AngulosMetodo2(){
   KalmanUncAnglePitch = Kalman1DOutput[1];
 }
 
+
+long int time_elapsed = 0;
+long int tiempo1 = 0;
+long int tiempo2 = 0;
+
 uint32_t LoopTimer = 0;
 void setup() {
     Serial.begin(115200);
@@ -160,79 +250,106 @@ void setup() {
 
     Wire.setClock(400000);
 
-    if (!mpu.setup(0x68)) {  // change to your own address
+    //Creacion de queue
+    xQueue = xQueueCreate(10, sizeof(Data));
+
+    if (!mpu.setup(0x69)) {  // change to your own address
         while (1) {
             Serial.println("MPU connection failed. Please check your connection with `connection_check` example.");
             delay(5000);
         }
     }
 
-    // //calibrate anytime you want to
+    //calibrate anytime you want to
     Serial.println("Accel Gyro calibration will start in 5sec.");
     Serial.println("Please leave the device still on the flat plane.");
     mpu.verbose(true);
     delay(5000);
     mpu.calibrateAccelGyro();
 
-    Serial.println("Mag calibration will start in 5sec.");
-    Serial.println("Please Wave device in a figure eight until done.");
-    delay(5000);
-    mpu.calibrateMag();
+    // Serial.println("Mag calibration will start in 5sec.");
+    // Serial.println("Please Wave device in a figure eight until done.");
+    // delay(5000);
+    // mpu.calibrateMag();
 
     print_calibration();
     mpu.verbose(false);
 
+    //Creando tareas de FreeRTOS en el nucleo 0
+    xTaskCreatePinnedToCore(
+      Task1code,   /* Funcion que implementa la tarea. */
+      "Task1",     /* Nombre de la tarea. */
+      10000,       /* Tamaño de la pila de la tarea */
+      NULL,        /* Parametros de la tarea */
+      1,           /* Prioridad de la tarea */
+      &xHandle_Task1,      /* Manejador de la tarea */
+      0);          /* Nucleo donde se ejecutara la tarea */
 
-    LoopTimer = micros();
+    // xTaskCreatePinnedToCore(
+    //   Task2code,   /* Funcion que implementa la tarea. */
+    //   "Task2",     /* Nombre de la tarea. */
+    //   10000,       /* Tamaño de la pila de la tarea */
+    //   NULL,        /* Parametros de la tarea */
+    //   1,           /* Prioridad de la tarea */
+    //   &Task2,      /* Manejador de la tarea */
+    //   0);          /* Nucleo donde se ejecutara la tarea */
 }
 
 void loop() {
-    if(mpu.update()){
-      mpu.update_accel_gyro(); //Actualiza valores de aceleracion y giroscopio
-      medirACL_Gyro(); //Obtengo mediciones de aceleracion y giroscopio
-      //AngulosMetodo1(); //Calcular los angulos de giro en X y Y usando la aceleracion
-      AngulosMetodo2(); //Calculo los angulos usando Kalman
-      // Serial.print(">Roll [deg]:");
-      // Serial.println(AngleRoll);
-      // // Serial.print(">Pitch [deg]:");
-      // // Serial.println(AnglePitch);
 
-      // //Ahora los resultados por Kalman
-      // Serial.print(">Roll Kalman [deg]:");
-      // Serial.println(KalmanAngleRoll);
-      // // Serial.print(">Pitch Kalman [deg]:");
-      // // Serial.println(KalmanAnglePitch);
+    //Calculando el tiempo que tarda en ejecutarse la funcion mpu.update_accel_gyro
 
-      // while(micros() - LoopTimer < 4000){
-      //     LoopTimer = micros();
-      // }
+    // if(mpu.update()){
+    //   mpu.update_accel_gyro(); //Actualiza valores de aceleracion y giroscopio
+    //   medirACL_Gyro(); //Obtengo mediciones de aceleracion y giroscopio
+    //   //AngulosMetodo1(); //Calcular los angulos de giro en X y Y usando la aceleracion
+    //   AngulosMetodo2(); //Calculo los angulos usando Kalman
+    //   // Serial.print(">Roll [deg]:");
+    //   // Serial.println(AngleRoll);
+    //   // // Serial.print(">Pitch [deg]:");
+    //   // // Serial.println(AnglePitch);
+
+    //   // //Ahora los resultados por Kalman
+    //   // Serial.print(">Roll Kalman [deg]:");
+    //   // Serial.println(KalmanAngleRoll);
+    //   // // Serial.print(">Pitch Kalman [deg]:");
+    //   // // Serial.println(KalmanAnglePitch);
+
+    //   // while(micros() - LoopTimer < 4000){
+    //   //     LoopTimer = micros();
+    //   // }
 
 
-      static uint32_t prev_ms = millis();
-        if (millis() > prev_ms + 20) {
+    //   static uint32_t prev_ms = millis();
+    //     if (millis() > prev_ms + 20) {
 
-          //Madgwick
-            print_roll_pitch_yaw();
+    //       //Madgwick
+    //         print_roll_pitch_yaw();
 
-            Serial.print(">Roll [deg]:");
-            Serial.println(AngleRoll);
-            // Serial.print(">Pitch [deg]:");
-            // Serial.println(AnglePitch);
+    //         Serial.print(">Roll [deg]:");
+    //         Serial.println(AngleRoll);
+    //         // Serial.print(">Pitch [deg]:");
+    //         // Serial.println(AnglePitch);
 
-            //Ahora los resultados por Kalman
-            Serial.print(">Roll Kalman [deg]:");
-            Serial.println(KalmanAngleRoll);
-            // Serial.print(">Pitch Kalman [deg]:");
-            // Serial.println(KalmanAnglePitch);
+    //         //Ahora los resultados por Kalman
+    //         Serial.print(">Roll Kalman [deg]:");
+    //         Serial.println(KalmanAngleRoll);
+    //         // Serial.print(">Pitch Kalman [deg]:");
+    //         // Serial.println(KalmanAnglePitch);
 
-            prev_ms = millis();
-          }
-    }
-
+    //         prev_ms = millis();
+    //       }
+    // }
+    
+    // tiempo1 = micros();
     // if (mpu.update()) {
+    //   tiempo2 = micros();
+    //   time_elapsed = tiempo2 - tiempo1;
+    //   Serial.print("Time elapsed [us]:");
+    //   Serial.println(time_elapsed);
     //     static uint32_t prev_ms = millis();
     //     if (millis() > prev_ms + 25) {
-    //         //print_roll_pitch_yaw();
+    //         print_roll_pitch_yaw();
     //         //print_acceleration();
     //         //print_rollrate();
     //         //printAngles();

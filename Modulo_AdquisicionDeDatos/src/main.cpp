@@ -7,6 +7,9 @@
 #include <Wire.h>
 #include <Arduino.h>
 
+#define LED_IDLE 23
+#define LED_EST1 4
+#define LED_CAL 15
 /*
 Maximum delay time is 4.9 ms corresponding to just over 200 Hz sample rate
 Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
@@ -19,7 +22,8 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define F_SAMPLING 4
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 #define T_SAMPLING_INC 100     //frecuencia = Hz
-#define NUM_DATOS 2048
+
+#define NUM_DATOS 4096
 #define MEAN_INTERVAL 5
 #define NUM_DATOS_TEMP 200
 #define NUM_DATOS_INC 800
@@ -82,6 +86,11 @@ struct BufferInclinacion{
 };
 BufferInclinacion estruc_buffer_inclinacion;
 
+struct trama_LoRa{
+  float trama_final[3*(NUM_DATOS - 1) + 2 + 2]; //Todos los datos de ACL, 2 de INC y 2 de TEMP
+};
+static trama_LoRa trama_final;
+
 //Estructura de 2 flotantes para temp&hum
 struct BMEData {
   float temperature;
@@ -116,24 +125,37 @@ int w = 0; //Contador para la cantidad de datos a guardar en el buffer de temper
 //Variables globales para medicion de temperatura y humedad
 float prom_temp = 0;
 float prom_hum = 0;
-int cont = 1;
-int cont2 = 0;
+int cont = 1; //Variable interna de iteraciones
+int cont2 = 0; //Posicion del buffer en la que se va a guardar
 
 //Variables globales para medicion de inclinacion
 float prom_roll = 0, prom_pitch = 0, prom_yaw = 0;
-int cont_inc = 0, cont2_inc = 1;
+int cont_inc = 0, cont2_inc = 1; //Variables internas de iteracion y posicion del buffer
 
 //Variables para el Delay Until
 TickType_t xLastWakeTime;
 
-int evaluar_limites_acl(float aclX, float aclY, float aclZ){
-  //Funcion para evaluar los valores de las variables de entrada y tomar decisiones si pasan de ciertos valores
-  // switch(aclX > LIM_ACLX | aclY > LIM_ACLY | aclZ > LIM_ACLZ){
-  //   case true: Serial.println("Un acelerometro supero el limite");
-  //   break;
-  //   case default
-  // }
-  
+//Banderas para control de tareas
+int flag_limite = 0;
+int flag_temp_hum = 0;
+int flag_inc = 0;
+
+//Devuelve una structura de tipo Trama Lora
+//Las input llevan const para evitar que sean modificadas las estrucutras por buenas practicas
+//s1 es una referencia a un objeto de tipo BufferACL
+trama_LoRa combineArrays(const BufferACL& s1, int len1, float* s2 ,int len2, float* s3, int len3) {
+    trama_LoRa trama;
+
+    memcpy(trama.trama_final, s1.bufferX, sizeof(s1.bufferX));
+    memcpy(trama.trama_final + len1, s1.bufferY, sizeof(s1.bufferY));
+    memcpy(trama.trama_final + len1 + len1, s1.bufferZ, sizeof(s1.bufferZ));
+    memcpy(trama.trama_final + len1 + len1 + len2, s2, sizeof(s2));
+    memcpy(trama.trama_final + len1 + len1 + len2 + len3, s3, sizeof(s3));
+
+    return trama;
+}
+
+int evaluar_limites_acl(float aclX, float aclY, float aclZ){  
   if(aclX >= LIM_ACLX){
     printf("El acelerometro en el eje X supero los %f m/s \n", LIM_ACLX);
     return 1;
@@ -149,16 +171,11 @@ int evaluar_limites_acl(float aclX, float aclY, float aclZ){
   else{
     return 0;
   }
-
 }
-
-int flag_limite = 0;
 
 void leerDatosACL(void *pvParameters){
   //Leer los valores del Acelerometro de la IMU
   while(true){
-
-
 
       mpu.getEvent(&a, &g, &tem);
 
@@ -182,14 +199,21 @@ void leerDatosACL(void *pvParameters){
         //xTaskDelayUntil
       }
       
+      //Evaluo los valores actuales de aceleracion
       if(flag_limite == 0){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
         if (flag_limite != 0){
           //Se ejecuta una sola vez
-          Serial.println("Se supero un limite de aceleracion, tomar accion!!!");
+          Serial.println("Se supero el limite de aceleracion, tomar accion!!!");
+          //Activando banderas para registro de temperatura y humedad
+          flag_inc = 1;
+          flag_temp_hum = 1;
+          digitalWrite(LED_EST1, HIGH);
+          vTaskSuspend(xHandle_blink);
         }
       }
 
+      //Envia los datos a la cola solo si se supero el limite
       if(flag_limite != 0){
         //Se supero un limite tomar accion
         //Serial.println("Se supero un limite de aceleracion, tomar accion!!!");
@@ -221,7 +245,7 @@ void leerDatosACL(void *pvParameters){
 }
 
 void mostrar_resultados(void){
-  for(int w = 2020; w < 2047; w++){
+  for(int w = 2037; w < 2047; w++){
           printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
         }
 
@@ -230,7 +254,7 @@ void mostrar_resultados(void){
 
         Serial.println();
         Serial.println("Buffer de temperatura y humedad");
-        for(int m = 0; m < 10; m++) {
+        for(int m = 0; m < 15; m++) {
           Serial.print("Temperatura: ");
           Serial.print(estruc_buffer_datos.buffertemp[m]);
           Serial.print(" ");  
@@ -240,7 +264,7 @@ void mostrar_resultados(void){
         }
         //Imprimiendo de igual forma los valores de inclinacion
         Serial.println("Buffer de inclinacion");
-        for(int j = 0; j < 10; j++) {
+        for(int j = 0; j < 15; j++) {
           Serial.print("Pitch: ");
           Serial.print(estruc_buffer_inclinacion.bufferPitch[j]);
           Serial.print(" ");  
@@ -272,14 +296,40 @@ void crearBuffer(void *pvParameters){
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
 
-        Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
-        vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
-        Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
-        vTaskSuspend(xHandle_readMPU9250);
-        Serial.println("Reiniciando bandera de limite...");
+        // Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
+        // vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
+        // Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
+        // vTaskSuspend(xHandle_readMPU9250);
+        Serial.println("Reiniciando banderas de limite...");
+
         flag_limite = 0;
+        flag_inc = 0;
+        flag_temp_hum = 0;
+
+        //Apago led indicativo de toma de datos
+        digitalWrite(LED_EST1, LOW);
 
         mostrar_resultados();
+
+        float aux_array_inc[2];
+        float aux_array_temp[2];
+
+        //Fill the auxiliary arrays with values from position 2 onwards
+        for(int y = 0; y < 2; y++) {
+          aux_array_inc[y] = estruc_buffer_inclinacion.bufferPitch[y+2];
+          aux_array_temp[y] = estruc_buffer_datos.buffertemp[y+2];
+        }
+
+        trama_final = combineArrays(struct_buffer_acl, NUM_DATOS-1, aux_array_inc, 2, aux_array_temp, 2);
+
+        //Envio los resultados a la tarea LORA-----------------------------------------
+
+        //Creando trama de datos para enviar por LORA
+
+        //Reiniciando para sobreescribir en buffers "nuevos" en la siguiente accion
+        k = 0;
+        cont2 = 0;
+        cont2_inc = 0;
 
         vTaskResume(xHandle_blink);
       }
@@ -304,16 +354,18 @@ void readBMETask(void *parameter) {
     data_readtemp.humidity = bme.readHumidity();
     data_readtemp.temperature = bme.readTemperature();
 
-    //Envia los datos a la cola dataQueue
-    if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
-      //Serial.println("Se envio correctamente la cola de temperatura");
-      vTaskDelay(10 / portTICK_PERIOD_MS); //Este delay permite que las lecturas del sensor sean las correctas
-      vTaskResume(xHandle_receive_temphum); //Reactivo tarea de creacion de buffers y promedios
+    //Envia los datos a la cola dataQueue si bandera esta activada
+    if(flag_temp_hum){
+        if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
+          //Serial.println("Se envio correctamente la cola de temperatura");
+          vTaskDelay(10 / portTICK_PERIOD_MS); //Este delay permite que las lecturas del sensor sean las correctas
+          vTaskResume(xHandle_receive_temphum); //Reactivo tarea de creacion de buffers y promedios
+        }
+        else{
+          Serial.println("No se envio correctamente la cola de temperatura");
+        }
     }
-    else{
-      Serial.println("No se envio correctamente la cola de temperatura");
-    }
-
+    
     //Delay dependiendo del tiempo de muestreo
     vTaskDelay(T_SAMPLING_TEMPHUM / portTICK_PERIOD_MS); //5Hz
   }
@@ -372,23 +424,18 @@ void readMPU9250(void *pvParameters){
           data_inc.IncPitch = mpu9250.getPitch();
           data_inc.IncYaw = mpu9250.getYaw();
 
-          //Imprimiendo los valores de Yaw, Pitch y Roll
-          // Serial.println("Roll Pitch Yaw");
-          // Serial.print(data_inc.IncRoll, 2);
-          // Serial.print(" ");
-          // Serial.print(data_inc.IncPitch, 2);
-          // Serial.print(" ");
-          // Serial.println(data_inc.IncYaw, 2);
+          //Evaluacion de limites de valores de inclinacion
 
-          //Envia los datos a la cola incQueue
-          if(xQueueSend(incQueue, &data_inc, portMAX_DELAY)){
+          //Envia los datos a la cola incQueue solo si la bandera esta activada
+          if(flag_inc){
+            if(xQueueSend(incQueue, &data_inc, portMAX_DELAY)){
             //Serial.println("Se envio correctamente la cola de inclinacion");
             vTaskResume(xHandle_recInclinacion); //Reactivo tarea de creacion de buffers y promedios
+            }
+            else{
+              Serial.println("No se envio correctamente la cola de inclinacion");
+            }
           }
-          else{
-            Serial.println("No se envio correctamente la cola de inclinacion");
-          }
-
           vTaskDelayUntil(&xLastWakeTime, T_SAMPLING_INC / portTICK_PERIOD_MS)
        }
 
@@ -453,17 +500,20 @@ void recInclinacion(void *pvParameters){
   }
 }
 
+
 void blink(void * pvParameters ) {
     while (1) {
-        digitalWrite(BUILTIN_LED, HIGH);
-        Serial.println("Led encendido");
+        digitalWrite(LED_IDLE, HIGH);
+        //Serial.println("Led encendido");
         delay(1000);
-        digitalWrite(BUILTIN_LED, LOW);
-        Serial.println("Led apagado");
+        digitalWrite(LED_IDLE, LOW);
+        //Serial.println("Led apagado");
         delay(1000);
     }
 }
 
+
+/*--------------------------------SETUP FUNCTIONS--------------------------------*/
 void setup_acl_MPU6050(void){
 
   int16_t accelCount[3];           // Stores the 16-bit signed accelerometer sensor output
@@ -485,32 +535,34 @@ void setup_acl_MPU6050(void){
   float fmuestreo = 1/(F_SAMPLING*0.001);
   printf("La frecuencia de muestreo escogida es: %.2f Hz \n", fmuestreo);
 
-  // mpu.MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
-  //   Serial.print("Self Test Eje X: Trim de aceleracion entre: "); Serial.print(SelfTest[0],1); Serial.println("% del valor nominal");
-  //   Serial.print("Self Test Eje Y: Trim de aceleracion entre: "); Serial.print(SelfTest[1],1); Serial.println("% del valor nominal");
-  //   Serial.print("Self Test Eje Z: Trim de aceleracion entre: "); Serial.print(SelfTest[2],1); Serial.println("% del valor nominal");
-  //   Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
-  //   Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
-  //   Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
+  digitalWrite(LED_CAL, HIGH);
 
-  //   if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) 
-  //   {
-  //   Serial.println("El sensor paso el self test!"); 
-  //   // mpu.calibrateMPU6050(gyroBias, accelBias); //Los bias calculados de salida estan en g, por lo que habria que multiplicarlos por SENSORS_GRAVITY para tenerlos en m/s^2
-  //   // Serial.println("Giroscopio y acelerometro calibrados, cargando biases en registros de bias");
-  //   // //Imprimiendo en serial valores de bias del acelerometro
-  //   // Serial.print("Bias del acelerometro en X: "); Serial.println(accelBias[0]);
-  //   // Serial.print("Bias del acelerometro en Y: "); Serial.println(accelBias[1]);
-  //   // Serial.print("Bias del acelerometro en Z: "); Serial.println(accelBias[2]);
-  //   // Serial.println();
-  //   }
-  //   else{
-  //     Serial.println("El sensor no paso el self test, revise el sensor");
-  //   }
+    // mpu.MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
+    // Serial.print("Self Test Eje X: Trim de aceleracion entre: "); Serial.print(SelfTest[0],1); Serial.println("% del valor nominal");
+    // Serial.print("Self Test Eje Y: Trim de aceleracion entre: "); Serial.print(SelfTest[1],1); Serial.println("% del valor nominal");
+    // Serial.print("Self Test Eje Z: Trim de aceleracion entre: "); Serial.print(SelfTest[2],1); Serial.println("% del valor nominal");
+    // Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
+    // Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
+    // Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
 
-  //   mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers,
+    // if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) 
+    // {
+    // Serial.println("El sensor paso el self test!"); 
+    // //mpu.calibrateMPU6050(gyroBias, accelBias); //Los bias calculados de salida estan en g, por lo que habria que multiplicarlos por SENSORS_GRAVITY para tenerlos en m/s^2
+    // // Serial.println("Giroscopio y acelerometro calibrados, cargando biases en registros de bias");
+    // // //Imprimiendo en serial valores de bias del acelerometro
+    // // Serial.print("Bias del acelerometro en X: "); Serial.println(accelBias[0]);
+    // // Serial.print("Bias del acelerometro en Y: "); Serial.println(accelBias[1]);
+    // // Serial.print("Bias del acelerometro en Z: "); Serial.println(accelBias[2]);
+    // // Serial.println();
+    // }
+    // else{
+    //   Serial.println("El sensor no paso el self test, revise el sensor");
+    // }
+
+    //mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers,
   //load biases in bias registers  
-   //}
+  
 
   mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
@@ -536,21 +588,22 @@ void setup_mpu9250(){
 
     Serial.println("MPU9250 conectado!");
 
-    vTaskDelay(500/portTICK_PERIOD_MS);
+    vTaskDelay(100/portTICK_PERIOD_MS);
 
-    //calibrate anytime you want to
-    // Serial.println("Accel Gyro calibration will start in 1sec.");
-    // Serial.println("Please leave the device still on the flat plane.");
-    // mpu9250.verbose(true);
-    // delay(1000);
-    // mpu9250.calibrateAccelGyro();
+    Serial.println("Accel Gyro calibration will start in 1sec.");
+    Serial.println("Please leave the device still on the flat plane.");
+    mpu9250.verbose(true);
+    delay(500);
+    mpu9250.calibrateAccelGyro();
 
     // Serial.println("Mag calibration will start in 1sec.");
     // Serial.println("Please Wave device in a figure eight until done.");
-    // delay(1000);
+    // delay(500);
     // mpu9250.calibrateMag();
 
-    // mpu9250.verbose(false);
+    //mpu9250.verbose(false);
+
+    digitalWrite(LED_CAL, LOW);
 
 }
 
@@ -565,6 +618,11 @@ void setup() {
   aclQueue = xQueueCreate(3, sizeof(ACLData));
   bufferQueue = xQueueCreate(3, sizeof(ACLData));
   incQueue = xQueueCreate(1, sizeof(IncData));
+
+  //Setting ouput pins for leds
+  pinMode(LED_EST1, OUTPUT);
+  pinMode(LED_IDLE, OUTPUT);
+  pinMode(LED_CAL, OUTPUT);
 
   // Initialize the BME280 sensor
 
@@ -595,16 +653,19 @@ void setup() {
     //Tareas a ejecutarse en el Nucleo 1
     xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 1);
     xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 1, &xHandle_receive_temphum, 1);
+    vTaskSuspend(xHandle_receive_temphum);
     xTaskCreatePinnedToCore(blink, "readBMETask", 1024, NULL, 1, &xHandle_blink, 1);
-    vTaskSuspend(xHandle_blink);
+    //vTaskSuspend(xHandle_blink);
   
     //Tareas a ejecutarse en el Nucleo 0
     xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
     xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*2, NULL, 2, &xHandle_crearBuffer, 0);
+    vTaskSuspend(xHandle_crearBuffer);
 
     //Tareas para obtener la inclinacion
     xTaskCreatePinnedToCore(readMPU9250, "readMPU9250", 1024*2, NULL, 0, &xHandle_readMPU9250, 1);
     xTaskCreatePinnedToCore(recInclinacion, "recInclinacion", 1024*2, NULL, 0, &xHandle_recInclinacion, 1);
+    vTaskSuspend(xHandle_recInclinacion);
 }
 
 void loop() {
