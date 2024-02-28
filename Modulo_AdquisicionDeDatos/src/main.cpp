@@ -29,9 +29,9 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define NUM_DATOS_INC 800
 
 //Valores limite 15 aceleracion en m/s^2
-#define LIM_ACLX 15.0
-#define LIM_ACLY 15.0
-#define LIM_ACLZ 15.0
+#define LIM_ACLX 2.0
+#define LIM_ACLY 2.0
+#define LIM_ACLZ 2.0
 
 //Sensor objects
 Adafruit_BME280 bme;
@@ -140,6 +140,9 @@ int flag_limite = 0;
 int flag_temp_hum = 0;
 int flag_inc = 0;
 
+//Calibracion
+float acl_offset[3];
+
 //Devuelve una structura de tipo Trama Lora
 //Las input llevan const para evitar que sean modificadas las estrucutras por buenas practicas
 //s1 es una referencia a un objeto de tipo BufferACL
@@ -186,10 +189,22 @@ void leerDatosACL(void *pvParameters){
       /*/ SENSORS_GRAVITY_EARTH
         / SENSORS_GRAVITY_EARTH
         / SENSORS_GRAVITY_EARTH*/
+      //Eliminando el offset solo si es mayor a +- 0.02
 
-      aclData.AclX = a.acceleration.x;
-      aclData.AclY = a.acceleration.y; 
-      aclData.AclZ = a.acceleration.z;
+      if(acl_offset[0] < 0){
+        acl_offset[0] = -acl_offset[0];
+      }
+      else if(acl_offset[1] < 0){
+        acl_offset[1] = -acl_offset[1];
+      }
+      else if(acl_offset[2] < 0){
+        acl_offset[2] = -acl_offset[2];
+      }
+
+      
+      aclData.AclX = a.acceleration.x - acl_offset[0];
+      aclData.AclY = a.acceleration.y - acl_offset[1]; 
+      aclData.AclZ = a.acceleration.z - acl_offset[2];
 
       //La data esta llenando los registros a 1KHz por la configuracion del sensor, sin embargo, se esta muestreando mas lento por la naturaleza de los sistemas en estudio
 
@@ -309,18 +324,20 @@ void crearBuffer(void *pvParameters){
         //Apago led indicativo de toma de datos
         digitalWrite(LED_EST1, LOW);
 
-        mostrar_resultados();
+         mostrar_resultados();
+       
 
-        float aux_array_inc[2];
-        float aux_array_temp[2];
+        //CAUSA REINICIO
+        // float aux_array_inc[2];
+        // float aux_array_temp[2];
 
-        //Fill the auxiliary arrays with values from position 2 onwards
-        for(int y = 0; y < 2; y++) {
-          aux_array_inc[y] = estruc_buffer_inclinacion.bufferPitch[y+2];
-          aux_array_temp[y] = estruc_buffer_datos.buffertemp[y+2];
-        }
+        // //Fill the auxiliary arrays with values from position 2 onwards
+        // for(int y = 0; y < 2; y++) {
+        //   aux_array_inc[y] = estruc_buffer_inclinacion.bufferPitch[y+2];
+        //   aux_array_temp[y] = estruc_buffer_datos.buffertemp[y+2];
+        // }
 
-        trama_final = combineArrays(struct_buffer_acl, NUM_DATOS-1, aux_array_inc, 2, aux_array_temp, 2);
+        // trama_final = combineArrays(struct_buffer_acl, NUM_DATOS-1, aux_array_inc, 2, aux_array_temp, 2);
 
         //Envio los resultados a la tarea LORA-----------------------------------------
 
@@ -371,6 +388,9 @@ void readBMETask(void *parameter) {
   }
 }
 
+float valor_temp_anterior = 0;
+float valor_hum_anterior = 0;
+
 // //Tarea de recepcion de datos
 void receive_temphum(void *parameter) {
   while (true) {
@@ -383,9 +403,29 @@ void receive_temphum(void *parameter) {
     if(xQueueReceive(data_temphumQueue, &data_temphum, portMAX_DELAY)){
 
     //CALCULO DEL PROMEDIO
+
+        //Implementacion del filtro de primer orden
+        if(cont == 1){
+          valor_temp_anterior = data_temphum.temperature;
+          valor_hum_anterior = data_temphum.humidity;
+
+          //Guardo las mediciones actuales en la primera iteracion
+          valor_temp_actual = data_temphum.temperature;
+          valor_hum_actual = data_temphum.humidity;
+        }
+        else{
+          //Actualizo valor actual con pesos de primer orden dandole mas peso al valor anterior
+          valor_temp_actual = valor_temp_anterior*0.9 + data_temphum.temperature*0.1;
+          valor_hum_actual = valor_hum_anterior*0.9 + data_temphum.humidity*0.1;
+          //Actualizo valores anteriores
+          valor_temp_anterior = valor_temp_actual;
+          valor_hum_anterior = valor_hum_actual;
+        }
+
         //Guardo las mediciones actuales
-        valor_temp_actual = data_temphum.temperature;
-        valor_hum_actual = data_temphum.humidity;
+        // valor_temp_actual = data_temphum.temperature;
+        // valor_hum_actual = data_temphum.humidity;
+
         //Las agrego al promedio
         prom_temp = valor_temp_actual + prom_temp;
         prom_hum = valor_hum_actual + prom_hum;
@@ -514,6 +554,52 @@ void blink(void * pvParameters ) {
 
 
 /*--------------------------------SETUP FUNCTIONS--------------------------------*/
+
+
+void MPU6050Offsets() {
+  const int numSamples = 1000; // Number of samples to collect for calibration
+
+  float sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+  sensors_event_t a_cal, g_cal, tem_cal;
+
+
+  // Initialize the MPU6050
+  mpu.begin();
+
+  // Calibrate the accelerometer offsets
+  for (int i = 0; i < numSamples; i++) {
+    mpu.getEvent(&a_cal, &g_cal, &tem_cal);
+    sumX += a_cal.acceleration.x;
+    sumY += a_cal.acceleration.y;
+    sumZ += a_cal.acceleration.z;
+    //delay(10); // Adjust the delay based on your requirements
+  }
+
+  // Calculate the average offsets
+  float avgOffsetX = sumX / numSamples;
+  float avgOffsetY = sumY / numSamples;
+  float avgOffsetZ = sumZ / numSamples;
+
+  //Save in acl_offset
+  acl_offset[0] = avgOffsetX;
+  acl_offset[1] = avgOffsetY;
+  acl_offset[2] = avgOffsetZ;
+
+  //Print the average offsets
+  Serial.print("Average X offset: "); Serial.println(avgOffsetX);
+  Serial.print("Average Y offset: "); Serial.println(avgOffsetY);
+  Serial.print("Average Z offset: "); Serial.println(avgOffsetZ);
+
+  // Set the calculated offsets to the MPU6050
+  // mpu.setXAccelOffset(-avgOffsetX);
+  // mpu.setYAccelOffset(-avgOffsetY);
+  // mpu.setZAccelOffset(-avgOffsetZ);
+  // mpu.setXGyroOffset(0);
+  // mpu.setYGyroOffset(0);
+  // mpu.setZGyroOffset(0);
+}
+
+
 void setup_acl_MPU6050(void){
 
   int16_t accelCount[3];           // Stores the 16-bit signed accelerometer sensor output
@@ -537,28 +623,30 @@ void setup_acl_MPU6050(void){
 
   digitalWrite(LED_CAL, HIGH);
 
-    // mpu.MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
-    // Serial.print("Self Test Eje X: Trim de aceleracion entre: "); Serial.print(SelfTest[0],1); Serial.println("% del valor nominal");
-    // Serial.print("Self Test Eje Y: Trim de aceleracion entre: "); Serial.print(SelfTest[1],1); Serial.println("% del valor nominal");
-    // Serial.print("Self Test Eje Z: Trim de aceleracion entre: "); Serial.print(SelfTest[2],1); Serial.println("% del valor nominal");
-    // Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
-    // Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
-    // Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
+    mpu.MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
+    Serial.print("Self Test Eje X: Trim de aceleracion entre: "); Serial.print(SelfTest[0],1); Serial.println("% del valor nominal");
+    Serial.print("Self Test Eje Y: Trim de aceleracion entre: "); Serial.print(SelfTest[1],1); Serial.println("% del valor nominal");
+    Serial.print("Self Test Eje Z: Trim de aceleracion entre: "); Serial.print(SelfTest[2],1); Serial.println("% del valor nominal");
+    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
+    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
+    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
 
-    // if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) 
-    // {
-    // Serial.println("El sensor paso el self test!"); 
-    // //mpu.calibrateMPU6050(gyroBias, accelBias); //Los bias calculados de salida estan en g, por lo que habria que multiplicarlos por SENSORS_GRAVITY para tenerlos en m/s^2
-    // // Serial.println("Giroscopio y acelerometro calibrados, cargando biases en registros de bias");
-    // // //Imprimiendo en serial valores de bias del acelerometro
-    // // Serial.print("Bias del acelerometro en X: "); Serial.println(accelBias[0]);
-    // // Serial.print("Bias del acelerometro en Y: "); Serial.println(accelBias[1]);
-    // // Serial.print("Bias del acelerometro en Z: "); Serial.println(accelBias[2]);
-    // // Serial.println();
-    // }
-    // else{
-    //   Serial.println("El sensor no paso el self test, revise el sensor");
-    // }
+    if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) 
+    {
+    Serial.println("El sensor paso el self test!"); 
+    // mpu.calibrateMPU6050(gyroBias, accelBias); //Los bias calculados de salida estan en g, por lo que habria que multiplicarlos por SENSORS_GRAVITY para tenerlos en m/s^2
+    // Serial.println("Giroscopio y acelerometro calibrados, cargando biases en registros de bias");
+    // //Imprimiendo en serial valores de bias del acelerometro
+    // Serial.print("Bias del acelerometro en X: "); Serial.println(accelBias[0]);
+    // Serial.print("Bias del acelerometro en Y: "); Serial.println(accelBias[1]);
+    // Serial.print("Bias del acelerometro en Z: "); Serial.println(accelBias[2]);
+    // Serial.println();
+    }
+    else{
+      Serial.println("El sensor no paso el self test, revise el sensor");
+    }
+
+  MPU6050Offsets();
 
     //mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers,
   //load biases in bias registers  
