@@ -1,5 +1,7 @@
 #include "tasks_queue.h"
+#include <estructuras.h>
 
+BufferTempHumedad buffera;
 
 //Create a task that receives a queue message every 2 seconds
 void task4(void* parameter) {

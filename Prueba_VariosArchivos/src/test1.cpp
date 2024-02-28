@@ -1,6 +1,9 @@
 #include "tasks_queue.h"
+#include <estructuras.h>
 
 int c = 0;
+
+BufferTempHumedad buffert;
 
 // Task function for Task 1
 void task1(void* parameter) {
