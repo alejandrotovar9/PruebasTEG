@@ -4,7 +4,7 @@
 BufferTempHumedad estruc_buffer_datos;
 BufferACL struct_buffer_acl;
 BufferInclinacion estruc_buffer_inclinacion;
-static trama_LoRa trama_final; //Es muy grande
+//static trama_LoRa trama_final; //Es muy grande
 
 //Variables globales
 int k = 0; //Contador para la cantidad de datos a guardar en el array
@@ -34,22 +34,25 @@ TickType_t xLastWakeTime;
 int flag_limite = 0;
 int flag_temp_hum = 0;
 int flag_inc = 0;
+int flag_send_packet = 0;
 
 
 //Devuelve una structura de tipo Trama Lora
 //Las input llevan const para evitar que sean modificadas las estrucutras por buenas practicas
 //s1 es una referencia a un objeto de tipo BufferACL
-trama_LoRa combineArrays(const BufferACL& s1, int len1, float* s2 ,int len2, float* s3, int len3) {
-    trama_LoRa trama;
+// trama_LoRa combineArrays(const BufferACL& s1, int len1, float* s2 ,int len2, float* s3, int len3) {
+//     trama_LoRa trama;
 
-    memcpy(trama.trama_final, s1.bufferX, sizeof(s1.bufferX));
-    memcpy(trama.trama_final + len1, s1.bufferY, sizeof(s1.bufferY));
-    memcpy(trama.trama_final + len1 + len1, s1.bufferZ, sizeof(s1.bufferZ));
-    memcpy(trama.trama_final + len1 + len1 + len2, s2, sizeof(s2));
-    memcpy(trama.trama_final + len1 + len1 + len2 + len3, s3, sizeof(s3));
+//     memcpy(trama.trama_final, s1.bufferX, sizeof(s1.bufferX));
+//     memcpy(trama.trama_final + len1, s1.bufferY, sizeof(s1.bufferY));
+//     memcpy(trama.trama_final + len1 + len1, s1.bufferZ, sizeof(s1.bufferZ));
+//     memcpy(trama.trama_final + len1 + len1 + len2, s2, sizeof(s2));
+//     memcpy(trama.trama_final + len1 + len1 + len2 + len3, s3, sizeof(s3));
 
-    return trama;
-}
+//     Serial.println("Se lleno la trama final");
+  
+//     return trama;
+// }
 
 int evaluar_limites_acl(float aclX, float aclY, float aclZ){  
   if(aclX >= LIM_ACLX){
@@ -83,17 +86,6 @@ void leerDatosACL(void *pvParameters){
         / SENSORS_GRAVITY_EARTH
         / SENSORS_GRAVITY_EARTH*/
 
-
-      // if(acl_offset[0] < 0){
-      //   acl_offset[0] = -acl_offset[0];
-      // }
-      // else if(acl_offset[1] < 0){
-      //   acl_offset[1] = -acl_offset[1];
-      // }
-      // else if(acl_offset[2] < 0){
-      //   acl_offset[2] = -acl_offset[2];
-      // }
-
       
       aclData.AclX = a.acceleration.x - acl_offset[0];
       aclData.AclY = a.acceleration.y - acl_offset[1]; 
@@ -112,24 +104,24 @@ void leerDatosACL(void *pvParameters){
       if(flag_limite == 0){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
         if (flag_limite != 0){
-          //Se ejecuta una sola vez
-          Serial.println("Se supero el limite de aceleracion, tomar accion!!!");
+          //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
+          Serial.println("Se supero el limite de aceleracion! Tomando datos...");
           //Activando banderas para registro de temperatura y humedad
           flag_inc = 1;
           flag_temp_hum = 1;
+
+          //Cambio en el LED de toma de datos
           digitalWrite(LED_EST1, HIGH);
+          //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
         }
       }
 
       //Envia los datos a la cola solo si se supero el limite
-      if(flag_limite != 0){
-        //Se supero un limite tomar accion
-        //Serial.println("Se supero un limite de aceleracion, tomar accion!!!");
-        //Comienza el registro de datos
+      if(flag_limite != 0)
+      {
         if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
-        //Serial.println("Se envio la cola con datos...");
-        vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
+          vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
         }
         else{
           Serial.println("No se envio la cola...");
@@ -154,7 +146,7 @@ void leerDatosACL(void *pvParameters){
 }
 
 void mostrar_resultados(void){
-  for(int w = 2037; w < 2047; w++){
+  for(int w = 0; w < 20; w++){
           printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
         }
 
@@ -188,14 +180,13 @@ void mostrar_resultados(void){
 void crearBuffer(void *pvParameters){
   while(true){
 
-    //Buffer a llenar
-    //BufferACL buffer;
     ACLData datos_acl;
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
       if( k <= NUM_DATOS){
         if(k == 1) tiempo1 = millis();
+        //Lleno el buffer de datos
         struct_buffer_acl.buffer_timestamp[k] = millis();
         struct_buffer_acl.bufferX[k] = datos_acl.AclX;
         struct_buffer_acl.bufferY[k] = datos_acl.AclY;
@@ -209,8 +200,10 @@ void crearBuffer(void *pvParameters){
         // vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
         // Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
         // vTaskSuspend(xHandle_readMPU9250);
+
         Serial.println("Reiniciando banderas de limite...");
 
+        //Se siguen tomando datos mas no se guardan en los buffers
         flag_limite = 0;
         flag_inc = 0;
         flag_temp_hum = 0;
@@ -219,21 +212,20 @@ void crearBuffer(void *pvParameters){
         digitalWrite(LED_EST1, LOW);
 
         mostrar_resultados();
-        
 
-        // float aux_array_inc[2];
-        // float aux_array_temp[2];
+        //Envio los resultados a la cola
+        if(xQueueSend(tramaLoRaQueue, &struct_buffer_acl, portMAX_DELAY)){
+          //vTaskSuspend(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+          vTaskSuspend(xHandle_readBMETask);
+          vTaskSuspend(xHandle_readMPU9250);
 
-        // //Fill the auxiliary arrays with values from position 2 onwards
-        // for(int y = 0; y < 2; y++) {
-        //   aux_array_inc[y] = estruc_buffer_inclinacion.bufferPitch[y+2];
-        //   aux_array_temp[y] = estruc_buffer_datos.buffertemp[y+2];
-        // }
-
-        // trama_final = combineArrays(struct_buffer_acl, NUM_DATOS-1, aux_array_inc, 2, aux_array_temp, 2);
-
-        //Envio los resultados a la tarea LORA-----------------------------------------
-
+          //Se envian los datos mediante lora
+          vTaskResume(xHandle_send_packet);
+          vTaskResume(xHandle_poll_packet);
+        }
+        else{
+          Serial.println("No se envio la cola...");
+        }
         //Creando trama de datos para enviar por LORA
 
         //Reiniciando para sobreescribir en buffers "nuevos" en la siguiente accion
@@ -410,7 +402,7 @@ void recInclinacion(void *pvParameters){
   }
 }
 
-
+//Manejo del blink de IDLE
 void blink(void * pvParameters ) {
     while (1) {
         digitalWrite(LED_IDLE, HIGH);
@@ -422,15 +414,9 @@ void blink(void * pvParameters ) {
     }
 }
 
-void offset_MPU6050(void){
-    //Funcion para eliminar el offset del sensor
-    //Se ejecuta una sola vez
-
-}
-
 /*--------------------------------SETUP FUNCTIONS--------------------------------*/
-void MPU6050Offsets() {
-  const int numSamples = 1000; // Number of samples to collect for calibration
+void MPU6050Offsets(void) {
+  const int numSamples = 1000; // Numero de muestras a tomar para eliminar el offset
 
   float sumX = 0.0, sumY = 0.0, sumZ = 0.0;
   sensors_event_t a_cal, g_cal, tem_cal;
@@ -548,40 +534,3 @@ void setup_mpu9250(){
     digitalWrite(LED_CAL, LOW);
 
 }
-
-
-// void guardarSD(void *pvParameters){
-//   while(true){
-
-//   float bufferXX[NUM_DATOS - 1] = { };  
-
-//   //BufferACL datos_listos;
-//   // Initialize SdFat or print a detailed error message and halt
-//   // Use half speed like the native library.
-//   // change to SPI_FULL_SPEED for more performance.
-//   if (!sd.begin(CS, SPI_HALF_SPEED)) sd.initErrorHalt();
-
-//   // open the file for write at end like the Native SD library
-//   if (!myFile.open("pruebaTEG1.txt", O_RDWR | O_CREAT | O_AT_END)) {
-//     sd.errorHalt("opening test.txt for write failed");
-//   }
-
-//   // if the file opened okay, write to it:
-
-//   //Headers
-//   myFile.println("ACLX");
-
-//   Serial.print("Se empieza a escribir en memoria...");
-//   if(xQueueReceive(bufferQueue, &bufferXX, portMAX_DELAY)){
-//      for(int w = 0; w < NUM_DATOS; w++){
-//       myFile.print(bufferXX[w]);
-//       myFile.print(",");
-//      }
-//   }
-//   //SUSPENDER TODO MIENTRAS SE GUARDA EN SD? O SE SIGUEN ADQUIRIENDO DATOS?
-
-//   // close the file:
-//   myFile.close();
-//   Serial.println("Se termino de guardar en SD.");
-//   }
-// }
