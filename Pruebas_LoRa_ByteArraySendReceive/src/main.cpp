@@ -66,7 +66,7 @@ int leer_datos(int packetSize){
   }
 
   byte incoming[incomingLength]; //Crea un byte array del tamaño de los datos enviados
-  	
+
   //Guardo datos en un vector para su posterior utilización
   //Existe manera mas rápida de guardarlos?
   int k = 0;
@@ -86,24 +86,27 @@ int leer_datos(int packetSize){
   Serial.println("Sent to: 0x" + String(recipient, HEX));
   Serial.println("Message ID: " + String(incomingMsgId));
   Serial.println("Message length: " + String(incomingLength));
-  
+
+
+  //ESCRIBIR RUTINA PARA LLENAR BUFFER CON DATA RECIBIDA
+
     //Converting back to a float array and printing it
     // memcpy(incoming_float, incoming, sizeof(incoming)); // Copy the data from the byte array to the float array
     // Serial.println(sizeof(chunks));
 
-    Serial.print("Se recibio el siguiente chunk: ");
-    //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats 
-    for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
-      float value;
-      memcpy(&value, &incoming[w], sizeof(float));
-      Serial.print(value);
-      Serial.print(" ");
-    }
+    // Serial.print("Se recibio el siguiente chunk: ");
+    // //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats
+    // for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
+    //   float value;
+    //   memcpy(&value, &incoming[w], sizeof(float));
+    //   Serial.print(value);
+    //   Serial.print(" ");
+    // }
 
-  Serial.println("RSSI: " + String(LoRa.packetRssi()));
-  Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El ultimo float del mensaje recibido es: " + String(incoming[int(incomingLength) - 4], HEX) + String(incoming[int(incomingLength) - 3], HEX) +String(incoming[int(incomingLength) - 2], HEX) + String(incoming[int(incomingLength) - 1], HEX));
-  Serial.println();
+  // Serial.println("RSSI: " + String(LoRa.packetRssi()));
+  // Serial.println("Snr: " + String(LoRa.packetSnr()));
+  // Serial.println("El ultimo float del mensaje recibido es: " + String(incoming[int(incomingLength) - 4], HEX) + String(incoming[int(incomingLength) - 3], HEX) +String(incoming[int(incomingLength) - 2], HEX) + String(incoming[int(incomingLength) - 1], HEX));
+  // Serial.println();
   //return 3;
 
   printf("El valor actual de msgID en int es: %d \n", int(incomingMsgId));
@@ -149,7 +152,7 @@ void poll_packet(void *pvParameters){
     switch(flag){
       case 0: break;//No se recibio un paquete, seguir haciendo polling
       case 1:
-        general_count++; 
+        general_count++;
         Serial.println("#####################################################");
         Serial.println("Los datos estan corruptos");
         Serial.println("#####################################################");
@@ -184,7 +187,7 @@ void poll_packet(void *pvParameters){
         break;
     }
 
-      vTaskDelay(10/portTICK_PERIOD_MS);
+      vTaskDelay(5/portTICK_PERIOD_MS);
 
     }
 }
@@ -257,7 +260,7 @@ void send_packet(void *pvParameters){
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     vTaskSuspend(NULL);
-  }  
+  }
 }
 
 
@@ -289,10 +292,11 @@ void setup() {
   //Tareas de FreeRTOS corriendo en el nucleo 0 del ESP32
   xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*2, NULL, 1, &xHandle_send_packet, 0);
   vTaskSuspend(xHandle_send_packet);
-  xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*2, NULL, 1, &xHandle_poll_packet, 0);
+  xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*4, NULL, 1, &xHandle_poll_packet, 0);
   //vTaskSuspend(xHandle_poll_packet);
-  xTaskCreatePinnedToCore(enviar_modo_op, "enviar_modo_op", 1024*2, NULL, 1, &xHandle_enviar_modo_op, 0);
-  
+  //xTaskCreatePinnedToCore(enviar_modo_op, "enviar_modo_op", 1024*2, NULL, 1, &xHandle_enviar_modo_op, 0);
+  //vTaskSuspend(xHandle_enviar_modo_op);
+
 }
 
 void loop() {
