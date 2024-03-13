@@ -9,8 +9,6 @@
 #include <DAQ.h>
 #include <lora_header.h>
 
-
-
 //INICIALIZCION DE OBJETOS
 Adafruit_BME280 bme;
 Adafruit_MPU6050 mpu;
@@ -19,6 +17,18 @@ MPU9250 mpu9250;
 //Variable de eventos MPU6050
 sensors_event_t a, g, tem;
 
+void IRAM_ATTR handleInterrupt() {
+    //sx1278Interrupt = true; //Hay que volverla false en el codigo al salir
+    //Change state from LED_CAL, if High turn Low and viceversa
+    if (digitalRead(LED_CAL) == HIGH) {
+        digitalWrite(LED_CAL, LOW);
+    } else {
+        digitalWrite(LED_CAL, HIGH);
+    }    
+    //digitalWrite(LED_CAL, HIGH);
+    vTaskSuspend(xHandle_blink);
+    //vTaskResume(xHandle_poll_packet); //Reanuda la lectura de paquete
+}
 
 void setup() {
   //se configura puerto serial
@@ -43,6 +53,10 @@ void setup() {
   pinMode(LED_EST1, OUTPUT);
   pinMode(LED_IDLE, OUTPUT);
   pinMode(LED_CAL, OUTPUT);
+
+  //Interrupciones
+  pinMode(2, INPUT);
+  //attachInterrupt(digitalPinToInterrupt(2), handleInterrupt, RISING);
 
   // Initialize the BME280 sensor
   while(!bme.begin(0x76)) {

@@ -16,7 +16,7 @@ byte msgCount = 0;            // count of outgoing messages
 byte localAddress = 0xFF;     // address of this device
 byte destination = 0xBB;      // destination to send to
 long lastSendTime = 0;        // last send time
-int interval = 700;          // interval between sends
+int interval = 200;          // interval between sends
 
 int NUM_PAQUETES_ESPERADOS = 32; //Numero de paquetes que se esperan enviar
 int expected_length = 1; //Longitud esperada de los datos enviados por el receptor
@@ -31,58 +31,6 @@ int general_count = 0;
 
 BufferACL trama;
 
-// PRUEBA
-// int generararray(int contador_paquetes)
-// {
-//     USO DE STATIC EVITA EL REBOOT
-//     static float floatArray[SIZE_OF_FLOAT_ARRAY];
-    
-//     for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i++) {
-//         floatArray[i] = static_cast<float>(i)/100;
-//     }    
-
-//     Calculate the number of chunks
-//     int numChunks = sizeof(floatArray) / sizeof(float) / CHUNK_SIZE;
-//     Create an array to hold the chunks
-//     float chunks[numChunks][CHUNK_SIZE];
-
-//     Split the array into chunks
-//     for (int i = 0; i < numChunks; i++) {
-//       memcpy(chunks[i], &floatArray[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
-//     }
-    
-//     Convert the float array to a byte array
-//     byte byteArray[SIZE_OF_FLOAT_ARRAY * sizeof(float)]; //Inicializacion de byte array
-//     memcpy(byteArray, floatArray, sizeof(floatArray));
-    
-//     //Converting back to a float array and printing it
-//     memcpy(floatArray2, byteArray, sizeof(floatArray2)); // Copy the data from the byte array to the float array
-//     Serial.println(sizeof(chunks));
-
-//     for (int i = 0; i < numChunks; i++) {
-//         for(int k= 0; k < CHUNK_SIZE; k++){
-//           Serial.print(chunks[i][k]); // Print each float
-//           Serial.print(" ");
-//         }
-//         Serial.print("\n"); // Print a space between each float
-//     }
-    
-//     Serial.print("Se envio el siguiente chunk: ");
-//     for(int w= 0; w < CHUNK_SIZE; w++){ 
-//           Serial.print(chunks[contador_paquetes][w]); // Print each float
-//           Serial.print(" ");
-//     }
-
-//     se envia cola a otra tarea
-//     if(xQueueSend(arrayQueue, &chunks[contador_paquetes], portMAX_DELAY) == pdTRUE){
-//       Serial.println("Se envio la cola a la tarea.");
-//     }
-//     else{
-//       Serial.println("Problema al enviar cola...");
-//     }
-
-//     return 0;
-// }
 
 int generararray(int contador_paquetes)
 {
@@ -90,11 +38,12 @@ int generararray(int contador_paquetes)
     static float floatArray[(SIZE_OF_FLOAT_ARRAY)]; //Creacion de float array
 
     //Recibiendo cola con datos de aceleracion en estructura de datos 
+    //Los datos son un float array dentro del buffer
     if(contador_paquetes == 0){
           if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
           {
           memcpy(floatArray, trama.bufferX, sizeof(trama.bufferX));
-          // memcpy(floatArray + SIZE_OF_FLOAT_ARRAY, trama.bufferY, sizeof(trama.bufferY));
+          //memcpy(floatArray + SIZE_OF_FLOAT_ARRAY, trama.bufferY, sizeof(trama.bufferY));
           // memcpy(floatArray + SIZE_OF_FLOAT_ARRAY * 2, trama.bufferZ, sizeof(trama.bufferZ));
           }
           //Serial.println("Se copiaron exitosamente los arreglos en FloatArray");
@@ -335,7 +284,7 @@ void poll_packet(void *pvParameters){
         Serial.println("Desactivando rutina de envio de datos en el emisor...");
         vTaskSuspend(xHandle_send_packet);
         Serial.println("Reactivando rutina de lectura de modo de operacion del sensor...");
-        vTaskResume(xHandle_poll_modo_operacion);
+        //vTaskResume(xHandle_poll_modo_operacion);
         Serial.println("Desactivando esta rutina de polling recepcion de datos de sensores");
         vTaskSuspend(NULL); //Se suspende esta tarea
         break;
@@ -344,7 +293,10 @@ void poll_packet(void *pvParameters){
         break;
     }
 
-      vTaskDelay(10/portTICK_PERIOD_MS);
+    //vTaskDelay(10/portTICK_PERIOD_MS);
+    //sx1278Interrupt = true; //reinicia flag de interrupcion
+    digitalWrite(LED_CAL, LOW);
+    vTaskSuspend(NULL); //Se suspende hasta la proxima interrupcion
     }
 }
 
@@ -460,6 +412,14 @@ void send_packet(void *pvParameters){
 //   }  
 // }
 
+void onReceive(int packetSize) {
+  // received a packet
+  //Serial.print("Received packet '");
+  digitalWrite(LED_CAL, HIGH);
+  vTaskResume(xHandle_poll_packet);
+}
+
+
 void setupLoRa(void){
      // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
@@ -468,10 +428,18 @@ void setupLoRa(void){
     Serial.println("LoRa init failed. Check your connections.");
     while (true);                       // if failed, do nothing
   }
+  //LoRa.setCodingRate4(7);
+  //LoRa.setPreambleLength(4);
+  //LoRa.setSyncWord(0x12); //Establece la palabra de sincronizacion
 
   LoRa.setSignalBandwidth(125E3);//7.8E3 hasta 250E3, por defecto es 31.25E3
   LoRa.setSpreadingFactor(7);//entre 6 y 12
   //LoRa.enableCrc();
+
+  //LoRa.receive();
+  //LoRa_rxMode();
+
+  //LoRa.onReceive(onReceive);
 
   Serial.println("LoRa init succeeded.");
 }

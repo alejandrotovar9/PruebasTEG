@@ -1,6 +1,10 @@
 #include <Adafruit_BME280.h>
 #include <Adafruit_MPU6050.h>
 #include <MPU9250.h>
+#include <SPI.h>              // include libraries
+#include <LoRa.h>
+#include <string.h>
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
@@ -18,12 +22,22 @@ extern TaskHandle_t xHandle_readMPU9250;
 extern TaskHandle_t xHandle_recInclinacion;
 extern TaskHandle_t xHandle_blink;
 
+//Task Handles para LoRa
+extern TaskHandle_t xHandle_poll_packet;
+extern TaskHandle_t xHandle_send_packet;
+extern TaskHandle_t xHandle_poll_modo_operacion;
+extern TaskHandle_t xHandle_receiveTask;
+
+
 //Handle de la Colas
 extern QueueHandle_t xQueue;
 extern QueueHandle_t data_temphumQueue;
 extern QueueHandle_t aclQueue;
 extern QueueHandle_t bufferQueue;
 extern QueueHandle_t incQueue;
+//Colas Lora
+extern QueueHandle_t arrayQueue;
+extern QueueHandle_t tramaLoRaQueue;
 
 //DECLARACION DE OBJETOS COMO EXTERNS PARA PODER USARLOS EN OTROS ARCHIVOS
 extern Adafruit_BME280 bme;

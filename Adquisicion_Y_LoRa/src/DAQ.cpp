@@ -216,12 +216,12 @@ void crearBuffer(void *pvParameters){
         //Envio los resultados a la cola
         if(xQueueSend(tramaLoRaQueue, &struct_buffer_acl, portMAX_DELAY)){
           //vTaskSuspend(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
-          vTaskSuspend(xHandle_readBMETask);
-          vTaskSuspend(xHandle_readMPU9250);
+          //vTaskSuspend(xHandle_readBMETask);
+          //vTaskSuspend(xHandle_readMPU9250);
 
           //Se envian los datos mediante lora
           vTaskResume(xHandle_send_packet);
-          vTaskResume(xHandle_poll_packet);
+          //vTaskResume(xHandle_poll_packet);
         }
         else{
           Serial.println("No se envio la cola...");

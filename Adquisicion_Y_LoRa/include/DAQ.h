@@ -1,6 +1,6 @@
 #include <tasks_queues.h>
 
-#define LED_IDLE 23
+#define LED_IDLE 17
 #define LED_EST1 4
 #define LED_CAL 15
 /*
@@ -16,7 +16,7 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 #define T_SAMPLING_INC 100     //frecuencia = Hz
 
-#define NUM_DATOS 4096
+#define NUM_DATOS 1024
 #define MEAN_INTERVAL 5
 #define NUM_DATOS_TEMP 200
 #define NUM_DATOS_INC 800

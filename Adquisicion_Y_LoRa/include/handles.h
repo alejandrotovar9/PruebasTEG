@@ -18,9 +18,20 @@ TaskHandle_t xHandle_recInclinacion= NULL;
 
 TaskHandle_t xHandle_blink = NULL;
 
+//Task handles para el modulo de comunicaciones LoRa
+TaskHandle_t xHandle_poll_packet = NULL;
+TaskHandle_t xHandle_send_packet = NULL;
+TaskHandle_t xHandle_poll_modo_operacion = NULL;
+TaskHandle_t xHandle_receiveTask = NULL;
+
+
 //Handle de las colas del modulo de adquisicion inicializadas
 QueueHandle_t xQueue;
 QueueHandle_t data_temphumQueue;
 QueueHandle_t aclQueue;
 QueueHandle_t bufferQueue;
 QueueHandle_t incQueue;
+//Handles inicializados para modulo de comunicaciones LoRa
+//Handle de la Cola
+QueueHandle_t arrayQueue;
+QueueHandle_t tramaLoRaQueue;
