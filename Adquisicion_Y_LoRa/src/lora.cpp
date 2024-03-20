@@ -106,10 +106,13 @@ BufferACL trama;
 // }
 
 //USO DE STATIC EVITA EL REBOOT
-static float floatArray[(SIZE_OF_FLOAT_ARRAY)]; //Creacion de float array
+static float floatArrayX[(SIZE_OF_FLOAT_ARRAY)]; //Creacion de float array
+static float floatArrayY[(SIZE_OF_FLOAT_ARRAY)];
+int contador_paquetes_interno = 0;
+float* selectedFloatArray;
 int generararray(int contador_paquetes)
 {
-    float* selectedFloatArray;
+
 
     //Recibiendo cola con datos de aceleracion en estructura de datos 
     //Los datos son un float array dentro del buffer
@@ -117,37 +120,40 @@ int generararray(int contador_paquetes)
           if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
           {
           /*The memcpy function takes three arguments: the destination pointer, the source pointer, and the number of bytes to copy.*/
-          memcpy(floatArray, trama.bufferX, sizeof(trama.bufferX));
-          // memcpy(&floatArray[SIZE_OF_FLOAT_ARRAY], trama.bufferY, sizeof(trama.bufferY));          
-          // memcpy(&floatArray[SIZE_OF_FLOAT_ARRAY*2], trama.bufferZ, sizeof(trama.bufferZ));
-          // memcpy(floatArray2, trama.bufferY, sizeof(trama.bufferY));
-          // memcpy(floatArray3, trama.bufferZ, sizeof(trama.bufferZ));
+          memcpy(floatArrayX, trama.bufferX, sizeof(trama.bufferX));
           }
-          //Serial.println("Se copiaron exitosamente los arreglos en FloatArray");
+          selectedFloatArray = floatArrayX;
+    }
+    if(contador_paquetes == 32)
+    {
+          contador_paquetes_interno = 0;
+          // if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
+          // {
+          // /*The memcpy function takes three arguments: the destination pointer, the source pointer, and the number of bytes to copy.*/
+          memcpy(floatArrayY, trama.bufferY, sizeof(trama.bufferY));
+          // }
+          // Serial.println("Se comienzan a enviar datos del eje Y");
+          // for (int i = 0; i < 10; i++) {
+          //   printf("floatArray[%d] = %f\n", i, floatArray[i]);
+          // }
+          // Serial.println("");
 
-          selectedFloatArray = floatArray;
+          selectedFloatArray = floatArrayY;
     }
 
     // Calculate the number of chunks
-    int numChunks = sizeof(floatArray) / sizeof(float) / CHUNK_SIZE; //El numero de chunks indica el numero de bytes final
-    //NUM_PAQUETES_ESPERADOS = numChunks;
-    //Serial.print("Numero de chunks:");
-    //Serial.println(numChunks);
-    //printf("Numero de bytes total: %i", numChunks*4);
+    int numChunks = sizeof(floatArrayX) / sizeof(float) / CHUNK_SIZE; //El numero de chunks indica el numero de bytes final
 
     // Check if the size of floatArray is divisible by CHUNK_SIZE
-    if (sizeof(floatArray) / sizeof(float) % CHUNK_SIZE != 0) {
+    if (sizeof(floatArrayX) / sizeof(float) % CHUNK_SIZE != 0) {
         Serial.println("Error: Size of floatArray is not divisible by CHUNK_SIZE");
     }
-    
     // Create an array to hold the chunks
     float chunks[numChunks][CHUNK_SIZE];
 
     // Split the array into chunks
     for (int i = 0; i < numChunks; i++) {
       memcpy(chunks[i], &selectedFloatArray[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float)); //Copiar 128bytes de Float Array (a partir de la posicion especificada por i) en chunks
-      //memcpy(chunks2[i], &floatArray2[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
-      //memcpy(chunks3[i], &floatArray3[i * CHUNK_SIZE], CHUNK_SIZE * sizeof(float));
     }
 
 
@@ -162,21 +168,15 @@ int generararray(int contador_paquetes)
     //   return 0;
     // }
 
-    // if(xQueueSend(arrayQueue, &selectedChunks, portMAX_DELAY) == pdTRUE){
-    //   Serial.println("Se envio la cola a la tarea de envio LoRa.");
-    // }
-    // else{
-    //   Serial.println("Problema al enviar cola...");
-    //   return 0;
-    // }
-
-    if(xQueueSend(arrayQueue, &chunks[contador_paquetes], portMAX_DELAY) == pdTRUE){
+    if(xQueueSend(arrayQueue, &chunks[contador_paquetes_interno], portMAX_DELAY) == pdTRUE){
       Serial.println("Se envio la cola a la tarea de envio LoRa.");
     }
     else{
       Serial.println("Problema al enviar cola...");
       return 0;
     }
+
+    contador_paquetes_interno++;
 
     return 1;
 }
@@ -409,14 +409,14 @@ void poll_packet(void *pvParameters){
 void send_packet(void *pvParameters){
   while(1){
     //Float array a enviar
-     generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
+    generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
 
-     if(contador_paquetes < ((SIZE_OF_FLOAT_ARRAY * 4)/128) - 1){
+    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*2/128) - 1){
          contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
      }
     else{
       contador_paquetes = 0; //Reinicio contador de paquetes
-      }
+    }
 
      float floatarray[CHUNK_SIZE];
      byte data[CHUNK_SIZE * sizeof(float)]; //Inicializacion de byte array
@@ -456,10 +456,9 @@ void send_packet(void *pvParameters){
     vTaskDelay(interval/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
-    // if(contador_paquetes >= SIZE_OF_FLOAT_ARRAY / NUM_PAQUETES_ESPERADOS){
-    //   vTaskResume(xHandle_poll_modo_operacion);
-    //   vTaskSuspend(NULL);
-    // }
+    if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*2/128) ){
+      vTaskSuspend(NULL);
+    }
   }  
 }
 

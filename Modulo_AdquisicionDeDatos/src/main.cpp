@@ -590,13 +590,6 @@ void MPU6050Offsets() {
   Serial.print("Average Y offset: "); Serial.println(avgOffsetY);
   Serial.print("Average Z offset: "); Serial.println(avgOffsetZ);
 
-  // Set the calculated offsets to the MPU6050
-  // mpu.setXAccelOffset(-avgOffsetX);
-  // mpu.setYAccelOffset(-avgOffsetY);
-  // mpu.setZAccelOffset(-avgOffsetZ);
-  // mpu.setXGyroOffset(0);
-  // mpu.setYGyroOffset(0);
-  // mpu.setZGyroOffset(0);
 }
 
 

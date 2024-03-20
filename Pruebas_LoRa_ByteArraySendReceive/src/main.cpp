@@ -22,6 +22,38 @@
 #define SIZE_OF_FLOAT_ARRAY 1024
 #define CHUNK_SIZE 32
 
+
+#define NUM_DATOS 1024
+#define MEAN_INTERVAL 5
+#define NUM_DATOS_TEMP 200
+#define NUM_DATOS_INC 800
+
+//Estructuras de datos 
+struct BufferTempHumedad{
+  float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
+  float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
+};
+
+//Estructura que contiene 3 arreglos de 5000 flotantes
+struct BufferACL{
+  long int buffer_timestamp[NUM_DATOS - 1] = {};
+  float bufferX[NUM_DATOS] = { };
+  float bufferY[NUM_DATOS] = { };
+  float bufferZ[NUM_DATOS] = { };
+};
+
+BufferACL buffer_prueba;
+
+struct BufferInclinacion{
+  float bufferRoll[NUM_DATOS_INC/5 - 1] = { };
+  float bufferPitch[NUM_DATOS_INC/5 - 1] = { };
+  float bufferYaw[NUM_DATOS_INC/5 - 1] = { };
+};
+
+struct trama_LoRa{
+  float trama_final[3*(NUM_DATOS - 1) + 2 + 2]; //Todos los datos de ACL, 2 de INC y 2 de TEMP
+};
+
 const int csPin = 5;          // LoRa radio chip select
 const int resetPin = 14;       // LoRa radio reset
 const int irqPin = 2;         // change for your board; must be a hardware interrupt pin
@@ -44,8 +76,43 @@ byte destination = 0xFF;      // destination to send to
 long lastSendTime = 0;        // last send time
 int interval = 2000;          // interval between sends
 
-byte NUM_PAQUETES_ESPERADOS = 32;
+byte NUM_PAQUETES_ESPERADOS = 64;
 int expected_length = 128;
+
+
+//void fillBufferX(BufferACL& bufferACL, unsigned char* byteArray, int size) {
+void fillBufferX(float* buffer, unsigned char* byteArray, int size) {
+    static int currentPos = 0; // keep track of current position in bufferX as static to prevent changes from function calls
+
+    Serial.print("El valor actual de currentPos en la funcion fillBuffer> ");
+    Serial.println(currentPos);
+
+    for (int i = 0; i < size; i += 4) {
+        // convert 4 bytes to float
+
+        //creando la union
+        union {
+            float f;
+            unsigned char b[4];
+        } u;
+
+        //Copiando 4 bytes del bytearray para convertir a flotante
+        for (int j = 0; j < 4; j++) {
+            u.b[j] = byteArray[i + j];
+        }
+
+        // append float to bufferX and increase position
+        //bufferACL.bufferX[currentPos++] = u.f;
+        
+        // append float to buffer and increase position
+        buffer[currentPos++] = u.f;
+
+        // if bufferX is full, reset currentPos to 0
+        if (currentPos == NUM_DATOS - 1) {
+            currentPos = 0;
+        }
+    }
+}
 
 //Funcion para leer y verificar datos recibidos luego del polling
 int leer_datos(int packetSize){
@@ -87,21 +154,28 @@ int leer_datos(int packetSize){
   Serial.println("Message ID: " + String(incomingMsgId));
   Serial.println("Message length: " + String(incomingLength));
 
-
-  //ESCRIBIR RUTINA PARA LLENAR BUFFER CON DATA RECIBIDA
+  //Guardar incoming en buffer
+  if((int)incomingMsgId <= 32){
+    Serial.println("Guardando en bufferX!!!");
+      fillBufferX(buffer_prueba.bufferX, incoming, incomingLength);  
+  }
+  // else if((int)incomingMsgId <= 64 && (int)incomingMsgId > 32){
+  //   Serial.println("Guardando en bufferY!!!");
+  //     fillBufferX(buffer_prueba.bufferY, incoming, incomingLength);  
+  // }
 
     //Converting back to a float array and printing it
     // memcpy(incoming_float, incoming, sizeof(incoming)); // Copy the data from the byte array to the float array
     // Serial.println(sizeof(chunks));
 
-    // Serial.print("Se recibio el siguiente chunk: ");
-    // //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats
-    // for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
-    //   float value;
-    //   memcpy(&value, &incoming[w], sizeof(float));
-    //   Serial.print(value);
-    //   Serial.print(" ");
-    // }
+  Serial.print("Se recibio el siguiente chunk: ");
+  //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats
+  for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
+    float value;
+    memcpy(&value, &incoming[w], sizeof(float));
+    Serial.print(value);
+    Serial.print(" ");
+  }
 
   // Serial.println("RSSI: " + String(LoRa.packetRssi()));
   // Serial.println("Snr: " + String(LoRa.packetSnr()));
@@ -120,6 +194,7 @@ int leer_datos(int packetSize){
     return 4;
   }
 }
+
 
 //Funcion para crear trama de datos (payload)
 void sendMessage(size_t size_data, byte data[]) {
@@ -176,6 +251,18 @@ void poll_packet(void *pvParameters){
         //Aqui se enviarian los datos para ser guardados y enviados por MQTT
       case 4:
         Serial.println("Se recibieron todos los paquetes!!!");
+        // Print the first 10 values from bufferX
+
+        for (int i = 0; i < 10; i++) {
+            printf("bufferX[%d] = %f\n", i, buffer_prueba.bufferX[i]);
+        }
+
+        Serial.println("");
+
+        // for (int w = 0; w < 10; w++) {
+        //     printf("bufferY[%d] = %f\n", w, buffer_prueba.bufferY[w]);
+        // }
+
         general_count++;
         Serial.println("#####################################################");
         printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);

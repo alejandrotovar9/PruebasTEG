@@ -1,6 +1,6 @@
 #include <tasks_queues.h>
 
-#define SIZE_OF_FLOAT_ARRAY 2048
+#define SIZE_OF_FLOAT_ARRAY 1024
 #define CHUNK_SIZE 32
 //Son 32 chunks, de 32 floats cada uno, para un total de 1024 floats
 
