@@ -16,7 +16,7 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 #define T_SAMPLING_INC 100     //frecuencia = Hz
 
-#define NUM_DATOS 1024
+#define NUM_DATOS 2048
 #define MEAN_INTERVAL 5
 #define NUM_DATOS_TEMP 200
 #define NUM_DATOS_INC 800
@@ -34,10 +34,10 @@ struct BufferTempHumedad{
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
-  long int buffer_timestamp[NUM_DATOS - 1] = {};
-  float bufferX[NUM_DATOS - 1] = { };
-  float bufferY[NUM_DATOS - 1] = { };
-  float bufferZ[NUM_DATOS - 1] = { };
+  long int buffer_timestamp[NUM_DATOS] = {};
+  float bufferX[NUM_DATOS] = { };
+  float bufferY[NUM_DATOS] = { };
+  float bufferZ[NUM_DATOS] = { };
 };
 
 struct BufferInclinacion{

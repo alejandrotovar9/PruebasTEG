@@ -97,7 +97,7 @@ void setup() {
     vTaskSuspend(xHandle_recInclinacion);
 
     //Tareas para la comunicacion LoRa Nucleo 1
-    xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*8, NULL, 2, &xHandle_send_packet, 0); 
+    xTaskCreatePinnedToCore(send_packet, "send_packet", 1024*10, NULL, 2, &xHandle_send_packet, 0); 
     //Se modifico la memoria alojada para la tarea, antes era 1024*4
     vTaskSuspend(xHandle_send_packet);
 
