@@ -47,11 +47,13 @@ Input -> int contador_paquetes (para decidir cual eje enviar dependiendo de si y
 */
 int generararray(int contador_paquetes)
 {
-
     //Recibiendo cola con datos de aceleracion en estructura de datos 
     //Los datos son un float array dentro del buffer
     if(contador_paquetes == 0){
           const int chunkSize = 64;
+          //Empty the previous contents of the arrays
+          contador_paquetes_interno = 0; //REINICIO CONTADOR INTERNO INDEPENDIENTE DE SI ENTRO POR PRIMERA VEZ
+
           if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
           {
             //Serial.println("Se recibio cola con exito");
@@ -357,14 +359,22 @@ void send_packet(void *pvParameters){
     Serial.print("Contador de paquetes actual antes de entrar en generararray: ");
     Serial.println(contador_paquetes);
 
+    // if(contador_paquetes >= ((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128){
+    //   contador_paquetes = 0;
+    // }
+
     generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
 
     
-    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
+    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
          contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
      }
-    else{
+    else if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
       contador_paquetes = 0; //Reinicio contador de paquetes
+      vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+      vTaskResume(xHandle_readBMETask);
+      vTaskResume(xHandle_readMPU9250);
+      vTaskSuspend(NULL);
       //vTaskSuspend(NULL);
     }
 
@@ -402,72 +412,13 @@ void send_packet(void *pvParameters){
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) ){
+      vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+      vTaskResume(xHandle_readBMETask);
+      vTaskResume(xHandle_readMPU9250);
       vTaskSuspend(NULL);
     }
   }  
 }
-
-//RUTINA DE ENVIO DE DATOS DE SENSORES A ESTACION BASE
-// void send_packet(void *pvParameters){
-//   while(1)
-//   {
-//      generararray(contador_paquetes);
-
-//     //  if(contador_paquetes < (SIZE_OF_FLOAT_ARRAY / NUM_PAQUETES_ESPERADOS) - 1){
-//     //       contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
-//     //       Serial.println("aumento paquete");
-//     //  }
-//     //  else
-//     //  {
-//     //   contador_paquetes = 0; //Reinicio contador de paquetes
-//     //  }
-
-//      Serial.println("prueba1");
-
-//      float floatarray[CHUNK_SIZE]; //float array para recibir la cola
-//      byte data[CHUNK_SIZE * sizeof(float)]; //Byte array a enviar
-
-//      if(xQueueReceive(arrayQueue, &floatarray, portMAX_DELAY)){
-//         Serial.println("Se recibio la cola con los datos");
-//      }
-
-//     //Convierte float array a bytearray
-//      memcpy(data, floatarray, sizeof(floatarray)); //Copio en data sizeof(floatarray) = 128bytes de floatarray
-//      //CHUNK_SIZE * sizeof(float)
-//     Serial.println("prueba2");
-
-//     // Serial.print("Se recibio el siguiente chunk: ");
-//     // for(int w= 0; w < CHUNK_SIZE; w++){
-//     //       Serial.print(data[w], HEX); // Print each float
-//     //       Serial.print(" ");
-//     // }
-    
-//     size_t size_data;
-//     size_data = sizeof(data);
-//     // Serial.print("Tamaño de la cola:");
-//     // Serial.println(sizeof(data));
-
-//     //Llamo a la funcion que crea la trama de datos (payload)
-//     if(sendMessage(size_data, data)){
-//         Serial.println("Sending byte array con datos!");
-//         Serial.println();
-//     }
-//     else{
-//       Serial.println("No se envio correctamente");
-//     }
-
-//     //Espero X segundos luego de enviar mensaje
-//     vTaskDelay(interval/portTICK_PERIOD_MS);
-//   }  
-// }
-
-void onReceive(int packetSize) {
-  // received a packet
-  //Serial.print("Received packet '");
-  digitalWrite(LED_CAL, HIGH);
-  vTaskResume(xHandle_poll_packet);
-}
-
 
 void setupLoRa(void){
      // override the default CS, reset, and IRQ pins (optional)
