@@ -51,12 +51,10 @@ int generararray(int contador_paquetes)
     //Los datos son un float array dentro del buffer
     if(contador_paquetes == 0){
           const int chunkSize = 64;
-          //Empty the previous contents of the arrays
           contador_paquetes_interno = 0; //REINICIO CONTADOR INTERNO INDEPENDIENTE DE SI ENTRO POR PRIMERA VEZ
 
           if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
           {
-            //Serial.println("Se recibio cola con exito");
             //Evita el error por MeditationGuru en Core0
             for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i += chunkSize)
             {
@@ -77,7 +75,7 @@ int generararray(int contador_paquetes)
           }
           selectedFloatArray = floatArrayX;
     }
-    else if(contador_paquetes == 32)
+    else if(contador_paquetes == 32) // (NUM_DATOS/CHUNKSIZE - 1)
     {
           contador_paquetes_interno = 0;
 
@@ -86,12 +84,12 @@ int generararray(int contador_paquetes)
 
           selectedFloatArray = floatArrayY;
     }
-    else if(contador_paquetes == 64)
+    else if(contador_paquetes == 64) // (NUM_DATOS/CHUNKSIZE - 1)*2
     {
           contador_paquetes_interno = 0;
           //Serial.println(sizeof(trama.bufferZ));
 
-          // if (trama.bufferZ == nullptr || floatArrayZ == nullptr) 
+          // if (trama.bufferZ == nullptr || floatArrayZ == nullptr) s
           // {
           // Serial.println("Error: Null pointer passed to memcpy");
           // }
@@ -102,6 +100,10 @@ int generararray(int contador_paquetes)
 
     // Calculate the number of chunks
     int numChunks = sizeof(floatArrayX) / sizeof(float) / CHUNK_SIZE; //El numero de chunks indica el numero de bytes final
+    //Print the amount of chunks
+    Serial.print("Amount of chunks calculated: ");
+    Serial.println(numChunks);
+    
 
     // Check if the size of floatArray is divisible by CHUNK_SIZE
     if (SIZE_OF_FLOAT_ARRAY / sizeof(float) % CHUNK_SIZE != 0) {
@@ -245,7 +247,7 @@ int sendMessage(size_t size_data, byte data[]) {
   //LoRa.print(outgoing);                 // add payload
   LoRa.write(data, size_data);
   LoRa.endPacket();                     // finish packet and send it
-  if(msgCount < ((NUM_DATOS*4)*3)/sizeof(float)/CHUNK_SIZE){
+  if(msgCount < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
     msgCount++;
   }
   else{
@@ -366,17 +368,17 @@ void send_packet(void *pvParameters){
     generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
 
     
-    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
+    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
          contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
-     }
-    else if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
-      contador_paquetes = 0; //Reinicio contador de paquetes
-      vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
-      vTaskResume(xHandle_readBMETask);
-      vTaskResume(xHandle_readMPU9250);
-      vTaskSuspend(NULL);
-      //vTaskSuspend(NULL);
     }
+    // else if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
+    //   contador_paquetes = 0; //Reinicio contador de paquetes
+    //   // vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+    //   // vTaskResume(xHandle_readBMETask);
+    //   // vTaskResume(xHandle_readMPU9250);
+    //   // vTaskSuspend(NULL);
+    //   //vTaskSuspend(NULL);
+    // }
 
      float floatarray[CHUNK_SIZE];
      byte data[CHUNK_SIZE * sizeof(float)]; //Inicializacion de byte array
@@ -411,7 +413,9 @@ void send_packet(void *pvParameters){
     vTaskDelay(interval/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
-    if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) ){
+    if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
+      Serial.println("Reactivando tareas de adquisicion de datos!");
+      contador_paquetes = 0;
       vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
       vTaskResume(xHandle_readBMETask);
       vTaskResume(xHandle_readMPU9250);

@@ -12,7 +12,7 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 4 - 250 Hz
 5 - 200 Hz
 */
-#define F_SAMPLING 4
+#define F_SAMPLING 5
 #define T_SAMPLING_TEMPHUM 200 //frecuencia = 1/T = 5Hz
 #define T_SAMPLING_INC 100     //frecuencia = Hz
 

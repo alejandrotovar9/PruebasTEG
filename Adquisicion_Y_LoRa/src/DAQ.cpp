@@ -36,24 +36,6 @@ int flag_temp_hum = 0;
 int flag_inc = 0;
 int flag_send_packet = 0;
 
-
-//Devuelve una structura de tipo Trama Lora
-//Las input llevan const para evitar que sean modificadas las estrucutras por buenas practicas
-//s1 es una referencia a un objeto de tipo BufferACL
-// trama_LoRa combineArrays(const BufferACL& s1, int len1, float* s2 ,int len2, float* s3, int len3) {
-//     trama_LoRa trama;
-
-//     memcpy(trama.trama_final, s1.bufferX, sizeof(s1.bufferX));
-//     memcpy(trama.trama_final + len1, s1.bufferY, sizeof(s1.bufferY));
-//     memcpy(trama.trama_final + len1 + len1, s1.bufferZ, sizeof(s1.bufferZ));
-//     memcpy(trama.trama_final + len1 + len1 + len2, s2, sizeof(s2));
-//     memcpy(trama.trama_final + len1 + len1 + len2 + len3, s3, sizeof(s3));
-
-//     Serial.println("Se lleno la trama final");
-  
-//     return trama;
-// }
-
 int evaluar_limites_acl(float aclX, float aclY, float aclZ){  
   if(aclX >= LIM_ACLX){
     printf("El acelerometro en el eje X supero los %f m/s \n", LIM_ACLX);
@@ -116,6 +98,8 @@ void leerDatosACL(void *pvParameters){
           vTaskSuspend(xHandle_blink);
         }
       }
+
+      Serial.print(".");
 
       //Envia los datos a la cola solo si se supero el limite
       if(flag_limite != 0)
@@ -184,7 +168,7 @@ void crearBuffer(void *pvParameters){
 
     //Recibo los datos de la cola y los guardo en la estructura creada
     if(xQueueReceive(aclQueue, &datos_acl, portMAX_DELAY)){
-      if( k <= NUM_DATOS){
+      if( k <= NUM_DATOS ){
         if(k == 1) tiempo1 = millis();
         //Lleno el buffer de datos
         struct_buffer_acl.buffer_timestamp[k] = millis();
@@ -195,6 +179,8 @@ void crearBuffer(void *pvParameters){
       }
       else{
         Serial.println("Se termino de llenar la estructura con exito!!!");
+        Serial.print("Valor final de k luego de llenar los datos: ");
+        Serial.println(k);
 
         // Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
         // vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
@@ -202,6 +188,11 @@ void crearBuffer(void *pvParameters){
         // vTaskSuspend(xHandle_readMPU9250);
 
         Serial.println("Reiniciando banderas de limite...");
+
+                //Reiniciando para sobreescribir en buffers "nuevos" en la siguiente accion
+        k = 0;
+        cont2 = 0;
+        cont2_inc = 0;
 
         //Se siguen tomando datos mas no se guardan en los buffers
         flag_limite = 0;
@@ -215,9 +206,10 @@ void crearBuffer(void *pvParameters){
 
         //Envio los resultados a la cola
         if(xQueueSend(tramaLoRaQueue, &struct_buffer_acl, portMAX_DELAY)){
-          //vTaskSuspend(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
-          //vTaskSuspend(xHandle_readBMETask);
-          //vTaskSuspend(xHandle_readMPU9250);
+           vTaskSuspend(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+           vTaskSuspend(xHandle_readBMETask);
+           vTaskSuspend(xHandle_readMPU9250);
+          Serial.println("Se envio la cola tramaLoRaQueue...");
 
           //Se envian los datos mediante lora
           vTaskResume(xHandle_send_packet);
@@ -226,12 +218,6 @@ void crearBuffer(void *pvParameters){
         else{
           Serial.println("No se envio la cola...");
         }
-        //Creando trama de datos para enviar por LORA
-
-        //Reiniciando para sobreescribir en buffers "nuevos" en la siguiente accion
-        k = 0;
-        cont2 = 0;
-        cont2_inc = 0;
 
         vTaskResume(xHandle_blink);
       }
@@ -288,14 +274,23 @@ void receive_temphum(void *parameter) {
         //Guardo las mediciones actuales
         valor_temp_actual = data_temphum.temperature;
         valor_hum_actual = data_temphum.humidity;
+        
+        //Solo guardo a partir de la 2da medicion para evitar la lectura erronea inicial
         //Las agrego al promedio
         prom_temp = valor_temp_actual + prom_temp;
         prom_hum = valor_hum_actual + prom_hum;
-
+        
         if(cont >= MEAN_INTERVAL){
           // printf("El  actual de temperatura es: %f \n", valor_temp_actual);
           // printf("El  actual de humedad es: %f \n", valor_hum_actual);
           //printf("El contador actual para calcular el promedio es: %i \n", cont);
+          // if((prom_temp / cont) < 10.0){
+          //   estruc_buffer_datos.buffertemp[cont2] = prom_temp / cont;
+          //   estruc_buffer_datos.bufferhum[cont2] = prom_hum / cont;
+          // }
+          // else{
+          //   continue;
+          // }
           estruc_buffer_datos.buffertemp[cont2] = prom_temp / cont;
           estruc_buffer_datos.bufferhum[cont2] = prom_hum / cont;
 
