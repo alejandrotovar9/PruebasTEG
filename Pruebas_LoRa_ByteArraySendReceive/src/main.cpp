@@ -76,12 +76,13 @@ byte destination = 0xFF;      // destination to send to
 long lastSendTime = 0;        // last send time
 int interval = 2000;          // interval between sends
 
-byte NUM_PAQUETES_ESPERADOS = 64;
+byte NUM_PAQUETES_ESPERADOS = 96;
 int expected_length = 128;
 
-
+/*Funcion para guardar cada chunk de 128 bytes que viene en forma de bytearray como entrada en el buffer designado por la entrada*/
 //void fillBufferX(BufferACL& bufferACL, unsigned char* byteArray, int size) {
 void fillBufferX(float* buffer, unsigned char* byteArray, int size) {
+    
     static int currentPos = 0; // keep track of current position in bufferX as static to prevent changes from function calls
 
     Serial.print("El valor actual de currentPos en la funcion fillBuffer> ");
@@ -108,7 +109,7 @@ void fillBufferX(float* buffer, unsigned char* byteArray, int size) {
         buffer[currentPos++] = u.f;
 
         // if bufferX is full, reset currentPos to 0
-        if (currentPos == NUM_DATOS - 1) {
+        if (currentPos == NUM_DATOS) {
             currentPos = 0;
         }
     }
@@ -155,14 +156,18 @@ int leer_datos(int packetSize){
   Serial.println("Message length: " + String(incomingLength));
 
   //Guardar incoming en buffer
-  if((int)incomingMsgId <= 32){
+  if((int)incomingMsgId <= 31){
     Serial.println("Guardando en bufferX!!!");
       fillBufferX(buffer_prueba.bufferX, incoming, incomingLength);  
   }
-  // else if((int)incomingMsgId <= 64 && (int)incomingMsgId > 32){
-  //   Serial.println("Guardando en bufferY!!!");
-  //     fillBufferX(buffer_prueba.bufferY, incoming, incomingLength);  
-  // }
+  else if((int)incomingMsgId > 31  && (int)incomingMsgId <= 63){
+    Serial.println("Guardando en bufferY!!!");
+      fillBufferX(buffer_prueba.bufferY, incoming, incomingLength);  
+  }
+  else if((int)incomingMsgId > 63 && (int)incomingMsgId <= 95){
+    Serial.println("Guardando en bufferZ!!!");
+      fillBufferX(buffer_prueba.bufferZ, incoming, incomingLength);  
+  }
 
     //Converting back to a float array and printing it
     // memcpy(incoming_float, incoming, sizeof(incoming)); // Copy the data from the byte array to the float array
@@ -256,12 +261,16 @@ void poll_packet(void *pvParameters){
         for (int i = 0; i < 10; i++) {
             printf("bufferX[%d] = %f\n", i, buffer_prueba.bufferX[i]);
         }
-
         Serial.println("");
 
-        // for (int w = 0; w < 10; w++) {
-        //     printf("bufferY[%d] = %f\n", w, buffer_prueba.bufferY[w]);
-        // }
+        for (int w = 0; w < 10; w++) {
+            printf("bufferY[%d] = %f\n", w, buffer_prueba.bufferY[w]);
+        }
+        Serial.println("");
+
+        for (int j = 0; j < 10; j++) {
+            printf("bufferZ[%d] = %f\n", j, buffer_prueba.bufferZ[j]);
+        }
 
         general_count++;
         Serial.println("#####################################################");
@@ -355,7 +364,7 @@ void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
 
-  Serial.println("LoRa ESATCION BASE");
+  Serial.println("LoRa ESTACION BASE");
 
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
