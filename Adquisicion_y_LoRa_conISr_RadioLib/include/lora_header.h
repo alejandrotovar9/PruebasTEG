@@ -12,3 +12,4 @@ void send_packet(void *pvParameters);
 void poll_modo_operacion(void *pvParameters);
 void setupLoRa(void);
 void setup_lora_radiolib(void);
+void receive_task(void *pvParameter);

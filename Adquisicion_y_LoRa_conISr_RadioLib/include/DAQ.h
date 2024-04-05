@@ -70,6 +70,9 @@ struct IncData{
   float IncYaw;
 } ;
 
+//Variable para controlar el envio de datos dependiendo de paquete recibido por Lora
+extern bool flag_acl;
+
 //Prototipos de funciones
 int evaluar_limites_acl(float aclX, float aclY, float aclZ);
 void leerDatosACL(void *pvParameters);

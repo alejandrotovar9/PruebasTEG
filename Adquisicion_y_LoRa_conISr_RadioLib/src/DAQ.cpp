@@ -35,6 +35,7 @@ int flag_limite = 0;
 int flag_temp_hum = 0;
 int flag_inc = 0;
 int flag_send_packet = 0;
+bool flag_acl = false;
 
 int evaluar_limites_acl(float aclX, float aclY, float aclZ){  
   if(aclX >= LIM_ACLX){
@@ -68,13 +69,9 @@ void leerDatosACL(void *pvParameters){
         / SENSORS_GRAVITY_EARTH
         / SENSORS_GRAVITY_EARTH*/
 
-      
       aclData.AclX = a.acceleration.x - acl_offset[0];
       aclData.AclY = a.acceleration.y - acl_offset[1]; 
       aclData.AclZ = a.acceleration.z - acl_offset[2];
-
-
-      //La data esta llenando los registros a 1KHz por la configuracion del sensor, sin embargo, se esta muestreando mas lento por la naturaleza de los sistemas en estudio
 
       //COMO SUSTITUIR ESTE DELAY??? LEER SOLO CUANDO LA DATA ESTE LISTA
       if(F_SAMPLING != 0){
@@ -83,7 +80,7 @@ void leerDatosACL(void *pvParameters){
       }
       
       //Evaluo los valores actuales de aceleracion
-      if(flag_limite == 0){
+      if(flag_limite == 0 || flag_acl == false){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
         if (flag_limite != 0){
           //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
@@ -97,12 +94,28 @@ void leerDatosACL(void *pvParameters){
           //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
         }
+        else if(flag_acl == true){
+          //Se cambia el valor de flag limite para solo ejecutar esto 1 vez
+          flag_limite = 1;
+
+          //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
+          Serial.println("Se recibio peticion de datos por LoRa! Tomando datos...");
+          //Activando banderas para registro de temperatura y humedad
+          flag_inc = 1;
+          flag_temp_hum = 1;
+
+          //Cambio en el LED de toma de datos
+          digitalWrite(LED_EST1, HIGH);
+          //Suspende tarea de LED IDLE
+          vTaskSuspend(xHandle_blink);
+        }
       }
 
+      //continue;
       Serial.print(".");
 
       //Envia los datos a la cola solo si se supero el limite
-      if(flag_limite != 0)
+      if(flag_limite != 0 || flag_acl == true)
       {
         if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
           vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
@@ -198,6 +211,7 @@ void crearBuffer(void *pvParameters){
         flag_limite = 0;
         flag_inc = 0;
         flag_temp_hum = 0;
+        flag_acl = false; //Reinicio booleano de recepcion LoRa para toma de decisiones en proxima peticion
 
         //Apago led indicativo de toma de datos
         digitalWrite(LED_EST1, LOW);

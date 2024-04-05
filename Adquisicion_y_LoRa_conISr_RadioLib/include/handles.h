@@ -23,6 +23,7 @@ TaskHandle_t xHandle_poll_packet = NULL;
 TaskHandle_t xHandle_send_packet = NULL;
 TaskHandle_t xHandle_poll_modo_operacion = NULL;
 TaskHandle_t xHandle_receiveTask = NULL;
+TaskHandle_t xHandle_receive_task = NULL;
 
 
 //Handle de las colas del modulo de adquisicion inicializadas

@@ -43,10 +43,6 @@ void setup() {
   pinMode(LED_IDLE, OUTPUT);
   pinMode(LED_CAL, OUTPUT);
 
-  //Interrupciones
-  pinMode(2, INPUT);
-  //attachInterrupt(digitalPinToInterrupt(2), handleInterrupt, RISING);
-
   // Initialize the BME280 sensor
   while(!bme.begin(0x76)) {
     Serial.println("Could not find BME280 sensor!");
@@ -90,8 +86,12 @@ void setup() {
     //Se modifico la memoria alojada para la tarea, antes era 1024*4
     vTaskSuspend(xHandle_send_packet);
 
-    xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*2, NULL, 1, &xHandle_poll_packet, 0);
-    vTaskSuspend(xHandle_poll_packet);
+    // xTaskCreatePinnedToCore(poll_packet, "poll_packet", 1024*2, NULL, 1, &xHandle_poll_packet, 0);
+    // vTaskSuspend(xHandle_poll_packet);
+
+    xTaskCreatePinnedToCore(receive_task, "receive_task", 1024*2, NULL, 3, &xHandle_receive_task, 1);
+    vTaskSuspend(xHandle_receive_task);
+
 
     // xTaskCreatePinnedToCore(poll_modo_operacion, "poll_modo_op", 1024*2, NULL, 1, &xHandle_poll_modo_operacion, 0);
 }

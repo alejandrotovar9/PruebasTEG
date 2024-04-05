@@ -28,6 +28,7 @@ extern TaskHandle_t xHandle_poll_packet;
 extern TaskHandle_t xHandle_send_packet;
 extern TaskHandle_t xHandle_poll_modo_operacion;
 extern TaskHandle_t xHandle_receiveTask;
+extern TaskHandle_t xHandle_receive_task;
 
 
 //Handle de la Colas

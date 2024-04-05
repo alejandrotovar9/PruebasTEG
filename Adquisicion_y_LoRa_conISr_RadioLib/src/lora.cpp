@@ -40,14 +40,30 @@ struct Packet {
   byte receiverId;
   byte payload[128]; // Adjust the size as needed
 };
+
+struct Packet2 {
+  byte messageId;
+  byte senderId;
+  byte receiverId;
+  byte payload[1]; // Adjust the size as needed
+};
+
+
 // // SX1278 has the following connections:
 // // NSS pin:   10
 // // DIO0 pin:  2
 // // RESET pin: 9
 // // DIO1 pin:  3
+
 byte byteArr[128];
 
 SX1278 radio = new Module(5, 2, 14, 3);
+
+//Bandera para indicar paquete recibido
+//volatile bool receivedFlag = false;
+
+//Bandera para indicar estado de transmision o recepcion
+bool transmitFlag = false;
 
 
 //USO DE STATIC EVITA EL REBOOT
@@ -58,6 +74,20 @@ static float floatArrayZ[(SIZE_OF_FLOAT_ARRAY)];
 
 int contador_paquetes_interno = 0;
 float* selectedFloatArray;
+
+//Bandera para indicar paquete recibido
+volatile bool receivedFlag = false;
+
+//Interrupt Service Routine
+void ICACHE_RAM_ATTR setFlag(void){
+  //Activo tarea de recepcion de datos
+  // if(transmitFlag != true){
+  //   vTaskResume(xHandle_receive_task);
+  // }
+  vTaskResume(xHandle_receive_task);
+  //transmitFlag = true;
+  receivedFlag = true;
+}
 
 /*Funcion para generar el arreglo de chunks que contienen 128 bytes cada uno para su posterior envio, mediante una cola, a la tarea de envio de datos LoRa en forma de byte array.
 
@@ -294,7 +324,7 @@ void poll_modo_operacion(void *pvParameters){
       //Comienzo a crear registro de temperatura, humedad y aceleracion
       //Es decir, activo las banderas necesarias (flag_envio_inmediato) para enviar las colas
       vTaskResume(xHandle_send_packet); //Rutina de envio de trama de datos
-      vTaskResume(xHandle_poll_packet); //Rutina de polling para mensajes del receptor'
+      //vTaskResume(xHandle_poll_packet); //Rutina de polling para mensajes del receptor'
       vTaskSuspend(NULL); //Suspendo temporalmente el polling de modo de operacion
       break;
 
@@ -373,62 +403,119 @@ void poll_packet(void *pvParameters){
     }
 }
 
-
 int sendmessage_radiolib(size_t size_data, byte data[]) {
+  if(transmitFlag){
+    Serial.print(F("[SX1278] Transmitting packet ... "));
 
-  Serial.print(F("[SX1278] Transmitting packet ... "));
+    Packet packet; //Creando packete como estructura Packet
 
-  // byte byteArr[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};
-  //     int state = radio.startTransmit(byteArr, 8);
+    packet.messageId = count_radiolib;
 
-  Packet packet; //Creando packete como estructura Packet
+    if(count_radiolib < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
+      count_radiolib++;
+    }
+    else{
+      count_radiolib = 0;
+    }
 
-  packet.messageId = count_radiolib;
+    packet.senderId = 0xFF; // Set your sender ID
+    packet.receiverId = 0xBB; // Set the intended receiver ID
+    memcpy(packet.payload, data, size_data); // Copy your byte array into the payload
 
-  if(count_radiolib < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
-    count_radiolib++;
+    // Convert the Packet struct to a byte array
+    byte* packetBytes = reinterpret_cast<byte*>(&packet);
+
+    int state = radio.startTransmit(packetBytes, sizeof(packet));
+
+    if (state == RADIOLIB_ERR_NONE) {
+      // the packet was successfully transmitted
+      Serial.println(F(" success!"));
+      return 1;
+
+    } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
+      // the supplied packet was longer than 256 bytes
+      Serial.println(F("too long!"));
+      return 0;
+
+    } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+      // timeout occurred while transmitting packet
+      Serial.println(F("timeout!"));
+      return 0;
+
+    } else {
+      // some other error occurred
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      return 0;
+    }
+    return 1;
   }
   else{
-    count_radiolib = 0;
+      Serial.println("Data is being received");
+      return 0;
   }
 
-  packet.senderId = 0xFF; // Set your sender ID
-  packet.receiverId = 0xBB; // Set the intended receiver ID
-  memcpy(packet.payload, data, size_data); // Copy your byte array into the payload
-
-  // Convert the Packet struct to a byte array
-  byte* packetBytes = reinterpret_cast<byte*>(&packet);
-
-  int state = radio.startTransmit(packetBytes, sizeof(packet));
-
-  if (state == RADIOLIB_ERR_NONE) {
-    // the packet was successfully transmitted
-    Serial.println(F(" success!"));
-    return 1;
-
-  } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
-    // the supplied packet was longer than 256 bytes
-    Serial.println(F("too long!"));
-    return 0;
-
-  } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
-    // timeout occurred while transmitting packet
-    Serial.println(F("timeout!"));
-    return 0;
-
-  } else {
-    // some other error occurred
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    return 0;
-  }
+  
 }
 
+void receive_task(void *pvParameter){
+  while(true){
+      //receivedFlag = false;
+
+      //Estructura Packet2 con payload mas pequeño que estructura Packet
+      Packet2 paquete_received;
+
+      byte byteArr[4];
+       int numBytes = radio.getPacketLength();
+      Serial.print("Packet length: ");
+      Serial.println(numBytes);
+      int state = radio.readData(byteArr, numBytes);
+
+      if(state == RADIOLIB_ERR_NONE){
+        Serial.println(F("[SX1278] Paquete recibido desde estacion base!"));
+
+        memcpy(&paquete_received, byteArr, sizeof(paquete_received));
+
+        //Print message ID, sender ID, receiver ID and payload
+        Serial.print("[SX1278] Message ID: "); //Puede utilizarse para indicar que tipo de comando es el que se envio
+        Serial.println(paquete_received.messageId);
+        Serial.print("[SX1278] Sender ID: ");
+        Serial.println(paquete_received.senderId);
+        Serial.print("[SX1278] Receiver ID: ");
+        Serial.println(paquete_received.receiverId);
+
+        //Print payload
+        Serial.print("[SX1278] Payload: ");
+        for(int i = 0; i < sizeof(paquete_received.payload); i++){
+          Serial.print(paquete_received.payload[i], HEX);
+          Serial.print(" ");
+        }
+        Serial.println();
+
+        if(paquete_received.payload[0] == 0x01){
+          flag_acl = true;
+        }
+      }
+      else if(state == RADIOLIB_ERR_CRC_MISMATCH){
+        Serial.println("[SX1278] CRC Error!");
+      }
+      else{
+        Serial.print("[SX1278] Fallo. Code: ");
+        Serial.println(state);
+      }
+
+      vTaskSuspend(NULL); //Se suspende a si misma hasta el proximo mensaje
+    }
+}
 
 //PRUEBA
 void send_packet(void *pvParameters){
   while(1){
-    //Float array a enviar
+    transmitFlag = true;
+
+    //detach interrupt from pin 2
+    detachInterrupt(2);
+
     Serial.print("Contador de paquetes actual antes de entrar en generararray: ");
     Serial.println(contador_paquetes);
 
@@ -490,6 +577,20 @@ void send_packet(void *pvParameters){
       vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
       vTaskResume(xHandle_readBMETask);
       vTaskResume(xHandle_readMPU9250);
+
+      transmitFlag = false; //Se desactiva el modo envio y se comienza a escuchar otra vez
+        // start listening for LoRa packets
+      Serial.print(F("[SX1278] Starting to listen for commands again... "));
+      attachInterrupt(digitalPinToInterrupt(2), setFlag, RISING);
+      int state = radio.startReceive();
+      if (state == RADIOLIB_ERR_NONE) {
+        Serial.println(F("success!"));
+      } else {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+        //while (true);
+      }
+
       vTaskSuspend(NULL);
     }
   }  
@@ -528,6 +629,13 @@ void setup_lora_radiolib() {
   radio.setBandwidth(250.0);
   // radio.setOutputPower(15);
 
+  //radio.setPacketReceivedAction(setFlag);
+
+    //Interrupciones
+  //Se configura pin 2 para manejar interrupcion del SX1278
+    pinMode(2, INPUT);
+    attachInterrupt(digitalPinToInterrupt(2), setFlag, RISING);
+
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println(F("LoRa RadioLib init success!"));
   } else {
@@ -536,4 +644,15 @@ void setup_lora_radiolib() {
     while (true);
   }
 
+
+  // start listening for LoRa packets
+  Serial.print(F("[SX1278] Starting to listen for commands... "));
+  int state2 = radio.startReceive();
+  if (state2 == RADIOLIB_ERR_NONE) {
+    Serial.println(F("success!"));
+  } else {
+    Serial.print(F("failed, code "));
+    Serial.println(state2);
+    while (true);
+  }
 }
