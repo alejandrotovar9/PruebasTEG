@@ -466,7 +466,12 @@ void receive_task(void *pvParameter){
       Packet2 paquete_received;
 
       byte byteArr[4];
-       int numBytes = radio.getPacketLength();
+      int numBytes = radio.getPacketLength();
+
+      if(numBytes > 5){
+        vTaskSuspend(NULL); //Ignorar si es mayor que 5
+      }
+      
       Serial.print("Packet length: ");
       Serial.println(numBytes);
       int state = radio.readData(byteArr, numBytes);

@@ -80,9 +80,10 @@ void leerDatosACL(void *pvParameters){
       }
       
       //Evaluo los valores actuales de aceleracion
-      if(flag_limite == 0 || flag_acl == false){
+      if(flag_limite == 0){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
-        if (flag_limite != 0){
+        if(flag_limite != 0){
+
           //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
           Serial.println("Se supero el limite de aceleracion! Tomando datos...");
           //Activando banderas para registro de temperatura y humedad
@@ -94,7 +95,10 @@ void leerDatosACL(void *pvParameters){
           //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
         }
-        else if(flag_acl == true){
+      }
+
+      //solo evalua si no se sobrepaso el limite al mismo tiempo
+      if(flag_acl == true && flag_limite == 0){
           //Se cambia el valor de flag limite para solo ejecutar esto 1 vez
           flag_limite = 1;
 
@@ -109,7 +113,6 @@ void leerDatosACL(void *pvParameters){
           //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
         }
-      }
 
       //continue;
       Serial.print(".");

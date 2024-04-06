@@ -150,5 +150,5 @@ int state = radio.startTransmit(packetBytes, sizeof(packet));
   }
 
   // wait for a second before transmitting again
-  delay(150);
+  delay(500);
 }
