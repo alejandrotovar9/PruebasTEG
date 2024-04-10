@@ -466,6 +466,8 @@ void receive_task(void *pvParameter){
       Packet2 paquete_received;
 
       byte byteArr[4];
+
+      //A veces causa la excepcion de que el paquete es mayor a 5 bytes
       int numBytes = radio.getPacketLength();
 
       if(numBytes > 5){
@@ -491,10 +493,12 @@ void receive_task(void *pvParameter){
 
         //Print payload
         Serial.print("[SX1278] Payload: ");
-        for(int i = 0; i < sizeof(paquete_received.payload); i++){
-          Serial.print(paquete_received.payload[i], HEX);
-          Serial.print(" ");
-        }
+        Serial.print(paquete_received.payload[0], HEX);
+        Serial.print(" ");
+        // for(int i = 0; i < sizeof(paquete_received.payload); i++){
+        //   Serial.print(paquete_received.payload[i], HEX);
+        //   Serial.print(" ");
+        // }
         Serial.println();
 
         if(paquete_received.payload[0] == 0x01){

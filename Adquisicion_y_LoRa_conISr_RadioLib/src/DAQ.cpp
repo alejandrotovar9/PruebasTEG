@@ -83,6 +83,7 @@ void leerDatosACL(void *pvParameters){
       if(flag_limite == 0){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
         if(flag_limite != 0){
+          flag_acl == true;
 
           //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
           Serial.println("Se supero el limite de aceleracion! Tomando datos...");
