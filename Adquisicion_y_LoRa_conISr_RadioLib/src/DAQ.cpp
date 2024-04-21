@@ -453,6 +453,8 @@ void blink(void * pvParameters ) {
     }
 }
 
+
+
 /*--------------------------------SETUP FUNCTIONS--------------------------------*/
 void MPU6050Offsets(void) {
   const int numSamples = 1000; // Numero de muestras a tomar para eliminar el offset

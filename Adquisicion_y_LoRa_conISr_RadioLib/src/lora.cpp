@@ -18,7 +18,6 @@ byte destination = 0xBB;      // destination to send to
 long lastSendTime = 0;        // last send time
 int interval = 150;          // interval between sends
 
-int NUM_PAQUETES_ESPERADOS = 64; //Numero de paquetes que se esperan enviar por eje
 int expected_length = 1; //Longitud esperada de los datos enviados por el receptor
 
 //Contador de paquetes a enviar en funcion send_packet
@@ -74,6 +73,13 @@ struct timestruct{
   int second;
 };
 
+union PacketUnion {
+  Packet2 packet2;
+  TimePacket timePacket;
+};
+
+int comando_o_rtc = 0; //Variable para indicar si se recibio un comando o una actualizacion de RTC
+
 
 // // SX1278 has the following connections:
 // // NSS pin:   10
@@ -107,9 +113,6 @@ volatile bool receivedFlag = false;
 //Interrupt Service Routine
 void ICACHE_RAM_ATTR setFlag(void){
   //Activo tarea de recepcion de datos
-  // if(transmitFlag != true){
-  //   vTaskResume(xHandle_receive_task);
-  // }
   vTaskResume(xHandle_receive_task);
   //transmitFlag = true;
   receivedFlag = true;
@@ -131,6 +134,7 @@ int generararray(int contador_paquetes)
           if(xQueueReceive(tramaLoRaQueue, &trama, portMAX_DELAY))
           {
             //Evita el error por MeditationGuru en Core0
+            //Copia los datos por partes en vez de completos, evita problemas de reboot
             for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i += chunkSize)
             {
                 // Calculate the size of the current chunk
@@ -144,32 +148,17 @@ int generararray(int contador_paquetes)
                 // Process the data in floatArrayX, floatArrayY, and floatArrayZ here
             }
             /*The memcpy function takes three arguments: the destination pointer, the source pointer, and the number of bytes to copy.*/
-            //memcpy(floatArrayX, trama.bufferX, sizeof(trama.bufferX));
-            // memcpy(floatArrayY, trama.bufferY, sizeof(trama.bufferY));
-            // memcpy(floatArrayZ, trama.bufferZ, sizeof(trama.bufferZ));
           }
           selectedFloatArray = floatArrayX;
     }
     else if(contador_paquetes == 32) // (NUM_DATOS/CHUNKSIZE - 1)
     {
           contador_paquetes_interno = 0;
-
-          //memcpy(floatArrayY, trama.bufferY, sizeof(trama.bufferY));
-          //memcpy(floatArrayZ, trama.bufferZ, sizeof(trama.bufferZ));
-
           selectedFloatArray = floatArrayY;
     }
     else if(contador_paquetes == 64) // (NUM_DATOS/CHUNKSIZE - 1)*2
     {
           contador_paquetes_interno = 0;
-          //Serial.println(sizeof(trama.bufferZ));
-
-          // if (trama.bufferZ == nullptr || floatArrayZ == nullptr) s
-          // {
-          // Serial.println("Error: Null pointer passed to memcpy");
-          // }
-          //memcpy(floatArrayZ, trama.bufferZ, sizeof(trama.bufferZ));
-          
           selectedFloatArray = floatArrayZ;
     }
 
@@ -205,230 +194,7 @@ int generararray(int contador_paquetes)
     return 1;
 }
 
-int leer_datos_sensor(int packetSize){
-
-  if (packetSize == 0) return 0;          // if there's no packet, return 0
-
-  Serial.println("Mensaje recibido");
-
-  // read packet header bytes:
-  int recipient = LoRa.read();          // recipient address
-  byte sender = LoRa.read();            // sender address
-  byte incomingMsgId = LoRa.read();     // incoming msg ID
-  byte incomingLength = LoRa.read();    // incoming msg length
-
-  if (incomingLength != expected_length) {   // check length for error
-    Serial.println("error: message length does not match expected length");
-    return 1;                             // skip rest of function
-  }
-
-  byte incoming[incomingLength]; //Crea un byte array del tamaño de los datos enviados
-  	
-  //Guardo datos en un vector para su posterior utilización
-  //Existe manera mas rápida de guardarlos?
-  int k = 0;
-  while (LoRa.available()) {
-    incoming[k] = (byte)LoRa.read();
-    k++;
-  }
-
-  // if the recipient isn't this device or broadcast,
-  if (recipient != localAddress && recipient != 0xFF) {
-    Serial.println("This message is not for me.");
-    return 2;                             // skip rest of function
-  }
-
-  // if message is for this device, or broadcast, print details:
-  Serial.println("Received from: 0x" + String(sender, HEX));
-  Serial.println("Sent to: 0x" + String(recipient, HEX));
-  Serial.println("Message ID: " + String(incomingMsgId));
-  Serial.println("Message length: " + String(incomingLength));
-  Serial.println("RSSI: " + String(LoRa.packetRssi()));
-  Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El byte del mensaje es: " + String(incoming[0], HEX));
-
-  if(String(incoming[0], HEX) == "2"){
-    //Se recibieron todos los paquetes en el receptor, no enviar mas paquetes
-    Serial.println("Si es 2!!!");
-    return 4;
-  }
-  else{
-    //El paquete no se recibio con exito
-    return 3;
-  }
-}
-
-int leer_modo_op(int packetSize){
-
-  if (packetSize == 0) return 0;          // if there's no packet, return 0
-
-  // read packet header bytes:
-  int recipient = LoRa.read();          // recipient address
-  byte sender = LoRa.read();            // sender address
-  byte incomingMsgId = LoRa.read();     // incoming msg ID
-  byte incomingLength = LoRa.read();    // incoming msg length
-
-  if (incomingLength != expected_length) {   // check length for error
-    Serial.println("error: message length does not match expected length");
-    return 5;                             // skip rest of function
-  }
-
-  byte incoming[incomingLength]; //Crea un byte array del tamaño de los datos enviados
-  	
-  //Guardo datos en un vector para su posterior utilización
-  //Existe manera mas rápida de guardarlos?
-  int k = 0;
-  while (LoRa.available()) {
-    incoming[k] = (byte)LoRa.read();
-    k++;
-  }
-
-  // if the recipient isn't this device or broadcast,
-  if (recipient != localAddress && recipient != 0xFF) {
-    Serial.println("This message is not for me.");
-    return 6;                             // skip rest of function
-  }
-
-  // if message is for this device, or broadcast, print details:
-  Serial.println("Received from: 0x" + String(sender, HEX));
-  Serial.println("Sent to: 0x" + String(recipient, HEX));
-  Serial.println("Message ID: " + String(incomingMsgId));
-  Serial.println("Message length: " + String(incomingLength));
-  Serial.println("RSSI: " + String(LoRa.packetRssi()));
-  Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println("El modo de operacion es: " + String(incoming[0], HEX));
-  Serial.println();
-
-  if (incoming[0] = 0x01){
-    //Se selecciono el modo de operacion 1
-    return 1;
-  }
-  else if(incoming[0] = 0x02){
-    //Se selecciono el modo de operacion 2
-    return 2;
-  }
-  else{
-    //No se recibio un modo de operacion o se selecciono el modo 3
-    return 5;
-  }
-}
-
-int sendMessage(size_t size_data, byte data[]) {
-  LoRa.beginPacket();                   // start packet
-  LoRa.write(destination);              // add destination address
-  LoRa.write(localAddress);             // add sender address
-  LoRa.write(msgCount);                 // add message ID
-  LoRa.write(size_data);      // add payload length
-  //LoRa.print(outgoing);                 // add payload
-  LoRa.write(data, size_data);
-  LoRa.endPacket();                     // finish packet and send it
-  if(msgCount < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
-    msgCount++;
-  }
-  else{
-    msgCount = 0;
-  }
-
-  return 1;
-}
-
-//RUTINA DE POLLING PARA VERIFICAR EL MODO DE OPERACION DEL SENSOR INTELIGENTE
-void poll_modo_operacion(void *pvParameters){
-  while(1){
-    int packetSize = LoRa.parsePacket();
-    int modo_de_operacion = leer_modo_op(packetSize);
-
-    switch(modo_de_operacion){
-      case 0: 
-      //Serial.println("No se recibio nada");
-      break; //No se recibio ningun mensaje, seguir haciendo polling
-
-      case 1: //Modo de operacion 1: Envio de trama de datos
-      //Rutinas del modo de operacion 1
-      Serial.println("Se selecciono el modo de operacion 1: Envio de trama de datos inmediata");
-      //msgCount = 0;
-      //Comienzo a crear registro de temperatura, humedad y aceleracion
-      //Es decir, activo las banderas necesarias (flag_envio_inmediato) para enviar las colas
-      vTaskResume(xHandle_send_packet); //Rutina de envio de trama de datos
-      //vTaskResume(xHandle_poll_packet); //Rutina de polling para mensajes del receptor'
-      vTaskSuspend(NULL); //Suspendo temporalmente el polling de modo de operacion
-      break;
-
-      case 2: //Modo de operacion 2: Envio de datos continuos
-      //Rutinas del modo de operacion 2
-      Serial.println("Se selecciono el modo de operacion 2: Envio de datos continuos o ante una alarma de sobrepaso de limite en algun sensor");
-      break;
-
-      case 5: //Datos corruptos
-      Serial.println("Los datos estan corruptos");
-      break;
-
-      case 6: //Mensaje no es para mi
-      Serial.println("Los datos no son para mi");
-      break;
-    }
-
-    vTaskDelay(10/portTICK_PERIOD_MS);
-  }
-}
-
-//RUTINA DE POLLING PARA RECIBIR DATOS DEL RECEPTOR CUANDO ESTA RECIBIENDO LA DATA DE LOS SENSORES
-void poll_packet(void *pvParameters){
-  while(1){
-    //Serial.println("Polling...");
-    int packetSize = LoRa.parsePacket();
-    int flag = leer_datos_sensor(packetSize);
-
-    //--------------------------Manejo de excepciones de receptor------------------------------
-    switch(flag){
-      case 0: break;//No se recibio un paquete, seguir haciendo polling
-      case 1:
-        general_count++; 
-        Serial.println("#####################################################");
-        Serial.println("Los datos estan corruptos");
-        Serial.println("#####################################################");
-        error_count++;
-        printf("Los errores hasta ahora son: %d/%d \n", error_count, general_count);
-        break;//La data no es de la longitud deseada (Data corrupted)
-      case 2:
-        general_count++;
-        Serial.println("#####################################################");
-        Serial.println("Los datos no son para este receptor");
-        Serial.println("#####################################################");
-        break;
-         //El mensaje no es para el
-      case 3:
-        Serial.println("Se recibio un paquete desde el receptor!!!");
-        vTaskResume(xHandle_send_packet);
-        general_count++;
-        Serial.println("#####################################################");
-        printf("Los errores para %d envios fueron: %d/%d \n", general_count, error_count, general_count);
-        Serial.println();
-        break;
-        //vTaskResume(xHandle_send_packet); //La data llego con exito y tiene el formato deseado
-      case 4:  //Respondo al emisor con que los datos ya fueron enviados por completo
-        Serial.println("Se recibieron todos los paquetes en el receptor!!!");
-        general_count = 0;
-        error_count = 0;
-        Serial.println("Desactivando rutina de envio de datos en el emisor...");
-        vTaskSuspend(xHandle_send_packet);
-        Serial.println("Reactivando rutina de lectura de modo de operacion del sensor...");
-        //vTaskResume(xHandle_poll_modo_operacion);
-        Serial.println("Desactivando esta rutina de polling recepcion de datos de sensores");
-        vTaskSuspend(NULL); //Se suspende esta tarea
-        break;
-      case 5:
-        Serial.println("Se recibio un paquete en el receptor pero no se reconoce el mensaje");
-        break;
-    }
-
-    //vTaskDelay(10/portTICK_PERIOD_MS);
-    //sx1278Interrupt = true; //reinicia flag de interrupcion
-    digitalWrite(LED_CAL, LOW);
-    vTaskSuspend(NULL); //Se suspende hasta la proxima interrupcion
-    }
-}
-
+//Funcion para enviar mensaje de i'm alive
 int send_imalive_radiolib(size_t size_data, byte data[]) {
   if(transmitFlag){
     Serial.print(F("[SX1278] Transmitting i'm alive ... "));
@@ -473,6 +239,7 @@ int send_imalive_radiolib(size_t size_data, byte data[]) {
       return 0;
   }  
 }
+
 
 int sendmessage_radiolib(size_t size_data, byte data[]) {
   if(transmitFlag){
@@ -592,13 +359,6 @@ void updateRTC(byte* packetBytes, size_t length) {
     Serial.println(timeinfo.tm_sec);
 }
 
-union PacketUnion {
-  Packet2 packet2;
-  TimePacket timePacket;
-};
-
-int comando_o_rtc = 0;
-
 void receive_task(void *pvParameter){
   while(true){
       //receivedFlag = false;
@@ -712,7 +472,7 @@ void receive_task(void *pvParameter){
 }
 
 //Funcion para enviar confirmacion de setup listo y comenzar sincronizacion de RTC
-void send_imalive_task(void){
+void send_imalive(void){
     transmitFlag = true;
 
     String str = "Smart Sensor Ready"; // Your string here
@@ -811,7 +571,8 @@ void send_packet(void *pvParameters){
       int state = radio.startReceive();
       if (state == RADIOLIB_ERR_NONE) {
         Serial.println(F("success!"));
-      } else {
+      } 
+      else{
         Serial.print(F("failed, code "));
         Serial.println(state);
         //while (true);
@@ -842,7 +603,7 @@ void setup_lora_radiolib() {
   }
 
   //ENVIO MENSAJE DE INICIALIZACION CORRECTA A ESTACION BASE
-  send_imalive_task();
+  send_imalive();
 
   //Interrupciones
   //Se configura pin 2 para manejar interrupcion del SX1278
