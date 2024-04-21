@@ -34,8 +34,18 @@ TickType_t xLastWakeTime;
 int flag_limite = 0;
 int flag_temp_hum = 0;
 int flag_inc = 0;
+int flag_time = 0;
 int flag_send_packet = 0;
 bool flag_acl = false;
+
+int checktime(void){
+  struct tm timeinfo = rtc.getTimeStruct();
+  if (timeinfo.tm_hour == 17 && timeinfo.tm_min == 45 && timeinfo.tm_sec == 00) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
 
 int evaluar_limites_acl(float aclX, float aclY, float aclZ){  
   if(aclX >= LIM_ACLX){
@@ -82,11 +92,13 @@ void leerDatosACL(void *pvParameters){
       //Evaluo los valores actuales de aceleracion
       if(flag_limite == 0){
         flag_limite = evaluar_limites_acl(aclData.AclX, aclData.AclY, aclData.AclZ);
+        flag_time = checktime();
         if(flag_limite != 0){
           flag_acl == true;
 
           //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
           Serial.println("Se supero el limite de aceleracion! Tomando datos...");
+
           //Activando banderas para registro de temperatura y humedad
           flag_inc = 1;
           flag_temp_hum = 1;
@@ -96,6 +108,19 @@ void leerDatosACL(void *pvParameters){
           //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
         }
+        if(flag_time){
+          flag_limite = 1;
+
+          Serial.println("Es hora de tomar datos segun RTC! Tomando datos...");
+          //Activando banderas para registro de temperatura y humedad
+          flag_inc = 1;
+          flag_temp_hum = 1;
+
+          //Cambio en el LED de toma de datos
+          digitalWrite(LED_EST1, HIGH);
+          //Suspende tarea de LED IDLE
+          vTaskSuspend(xHandle_blink);
+          }
       }
 
       //solo evalua si no se sobrepaso el limite al mismo tiempo
@@ -119,7 +144,7 @@ void leerDatosACL(void *pvParameters){
       Serial.print(".");
 
       //Envia los datos a la cola solo si se supero el limite
-      if(flag_limite != 0 || flag_acl == true)
+      if(flag_limite != 0 || flag_acl == true || flag_time == 1)
       {
         if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
           vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
@@ -215,6 +240,7 @@ void crearBuffer(void *pvParameters){
         flag_limite = 0;
         flag_inc = 0;
         flag_temp_hum = 0;
+        flag_time = 0;
         flag_acl = false; //Reinicio booleano de recepcion LoRa para toma de decisiones en proxima peticion
 
         //Apago led indicativo de toma de datos

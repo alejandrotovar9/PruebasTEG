@@ -70,6 +70,8 @@ struct IncData{
   float IncYaw;
 } ;
 
+
+
 //Variable para controlar el envio de datos dependiendo de paquete recibido por Lora
 extern bool flag_acl;
 

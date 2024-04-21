@@ -30,6 +30,8 @@ int general_count = 0;
 
 BufferACL trama; //Estructura de datos para recibir la trama de aceleracion
 
+//Objeto ESP32Time
+ESP32Time rtc;
 
 //counter to keep track of transmitted packets
 byte count_radiolib = 0;
@@ -528,6 +530,13 @@ int sendmessage_radiolib(size_t size_data, byte data[]) {
 /*Toma como entrada el byte array que contiene la informacion del RTC*/
 void updateRTC(byte* packetBytes, size_t length) {
 
+   // Save the old timezone
+    char *oldTZ = getenv("TZ");
+
+    // Set the timezone to UTC
+    setenv("TZ", "UTC", 1);
+    tzset();
+
   // Convert the byte array back to a TimePacket
   timestruct* packet = reinterpret_cast<timestruct*>(packetBytes);
 
@@ -541,8 +550,8 @@ void updateRTC(byte* packetBytes, size_t length) {
 
   // Set the time
   struct tm timeinfo;
-  timeinfo.tm_year = year;
-  timeinfo.tm_mon = month;
+  timeinfo.tm_year = year - 1900;
+  timeinfo.tm_mon = month - 1;
   timeinfo.tm_mday = day;
   timeinfo.tm_hour = hour;
   timeinfo.tm_min = minute;
@@ -550,6 +559,7 @@ void updateRTC(byte* packetBytes, size_t length) {
 
   // Convert the tm structure to time_t
   time_t t = mktime(&timeinfo);
+  Serial.println(t);  // Print the result from mktime
 
   // Create a timeval structure
   struct timeval now = { .tv_sec = t };
@@ -557,13 +567,21 @@ void updateRTC(byte* packetBytes, size_t length) {
   // Update the RTC
   settimeofday(&now, NULL);
 
+      // Restore the old timezone
+    if (oldTZ) {
+        setenv("TZ", oldTZ, 1);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
+
   Serial.println("Time and date updated on Smart Sensor!");
 
   // Print the current time from the time_packet structure
     Serial.print("Year: ");
-    Serial.println(timeinfo.tm_year);
+    Serial.println(timeinfo.tm_year + 1900);
     Serial.print("Month: ");
-    Serial.println(timeinfo.tm_mon);
+    Serial.println(timeinfo.tm_mon + 1);
     Serial.print("Day: ");
     Serial.println(timeinfo.tm_mday);
     Serial.print("Hour: ");

@@ -5,6 +5,9 @@
 #include <LoRa.h>
 #include <RadioLib.h>
 #include <string.h>
+#include <time.h>
+#include <ESP32Time.h>
+
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -45,6 +48,8 @@ extern QueueHandle_t tramaLoRaQueue;
 extern Adafruit_BME280 bme;
 extern Adafruit_MPU6050 mpu;
 extern MPU9250 mpu9250;
+
+extern ESP32Time rtc;
 
 //ESTA VARIABLE DE EVENTOS SOLO SE USA EN EL DAQ.CPP
 extern sensors_event_t a, g, tem;
