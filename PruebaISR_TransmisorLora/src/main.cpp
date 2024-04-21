@@ -63,7 +63,7 @@ struct TimePacket
   byte messageID;
   byte senderID;
   byte receiverID;
-  byte payload[4]; // Adjust the size as needed
+  byte payload[24]; // Adjust the size as needed
 };
 
 struct timestruct
@@ -678,6 +678,7 @@ void send_RTC_task(void *pvParameters)
       timestruct time_packet;
       // Fill the time_packet structure with current time
       struct tm timeinfo = rtc.getTimeStruct();
+
       time_packet.year = timeinfo.tm_year + 1900;
       time_packet.month = timeinfo.tm_mon + 1;
       time_packet.day = timeinfo.tm_mday;
@@ -701,8 +702,21 @@ void send_RTC_task(void *pvParameters)
       // Convert the time_packet structure to a byte array
       byte *byteArrTime = (byte *)&time_packet;
 
+      //Print the payload
+      //print data of the packet
+      Serial.print(F("[SX1278] Payload:\t\t"));
+      //print the byte array
+      // Print the byte array
+      for (int i = 0; i < sizeof(time_packet); i++) {
+          Serial.print(byteArrTime[i], HEX);
+          Serial.print(F(" "));
+      }
+
+
+      Serial.println("");
+
       Serial.print(F("El tamaño del payload de tiempo es: "));
-      Serial.println(sizeof(byteArrTime));
+      Serial.println(sizeof(time_packet));
 
       packet.messageID = 255;
       packet.senderID = 1;                                         // Set your sender ID

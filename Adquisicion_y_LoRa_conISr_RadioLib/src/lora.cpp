@@ -42,10 +42,34 @@ struct Packet {
 };
 
 struct Packet2 {
-  byte messageId;
-  byte senderId;
-  byte receiverId;
+  byte messageID;
+  byte senderID;
+  byte receiverID;
   byte payload[1]; // Adjust the size as needed
+};
+
+//Estructuras para actualizacion de RTC
+struct TimePacket{
+  byte messageID;
+  byte senderID;
+  byte receiverID;
+  byte payload[24]; // Adjust the size as needed
+};
+
+struct StringPacket {
+  byte messageID;
+  byte senderID;
+  byte receiverID; // Message ID
+  char payload[19]; // Message (18 characters for "Smart Sensor Ready" + 1 for the null-terminating character)
+};
+
+struct timestruct{
+  int year;
+  int month;
+  int day;
+  int hour;
+  int minute;
+  int second;
 };
 
 
@@ -403,11 +427,56 @@ void poll_packet(void *pvParameters){
     }
 }
 
+int send_imalive_radiolib(size_t size_data, byte data[]) {
+  if(transmitFlag){
+    Serial.print(F("[SX1278] Transmitting i'm alive ... "));
+
+    StringPacket packet; //Creando paquete como estructura Packet
+
+    packet.messageID = 0xFF;
+    packet.senderID = 0x2; // Set your sender ID
+    packet.receiverID = 0x1; // Set the intended receiver ID
+    memcpy(packet.payload, data, size_data); // Copy your byte array into the payload
+
+    // Convert the Packet struct to a byte array
+    byte* packetBytes = reinterpret_cast<byte*>(&packet);
+
+    int state = radio.startTransmit(packetBytes, sizeof(packet));
+
+    if (state == RADIOLIB_ERR_NONE) {
+      // the packet was successfully transmitted
+      Serial.println(F(" success!"));
+      return 1;
+
+    } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
+      // the supplied packet was longer than 256 bytes
+      Serial.println(F("too long!"));
+      return 0;
+
+    } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+      // timeout occurred while transmitting packet
+      Serial.println(F("timeout!"));
+      return 0;
+
+    } else {
+      // some other error occurred
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      return 0;
+    }
+    return 1;
+  }
+  else{
+      Serial.println("Data is being received");
+      return 0;
+  }  
+}
+
 int sendmessage_radiolib(size_t size_data, byte data[]) {
   if(transmitFlag){
     Serial.print(F("[SX1278] Transmitting packet ... "));
 
-    Packet packet; //Creando packete como estructura Packet
+    Packet packet; //Creando paquete como estructura Packet
 
     packet.messageId = count_radiolib;
 
@@ -454,25 +523,98 @@ int sendmessage_radiolib(size_t size_data, byte data[]) {
       Serial.println("Data is being received");
       return 0;
   }
-
-  
 }
+
+/*Toma como entrada el byte array que contiene la informacion del RTC*/
+void updateRTC(byte* packetBytes, size_t length) {
+
+  // Convert the byte array back to a TimePacket
+  timestruct* packet = reinterpret_cast<timestruct*>(packetBytes);
+
+  // Extract the date and time from the packet
+  int year = packet->year;
+  int month = packet->month;
+  int day = packet->day;
+  int hour = packet->hour;
+  int minute = packet->minute;
+  int second = packet->second;
+
+  // Set the time
+  struct tm timeinfo;
+  timeinfo.tm_year = year;
+  timeinfo.tm_mon = month;
+  timeinfo.tm_mday = day;
+  timeinfo.tm_hour = hour;
+  timeinfo.tm_min = minute;
+  timeinfo.tm_sec = second;
+
+  // Convert the tm structure to time_t
+  time_t t = mktime(&timeinfo);
+
+  // Create a timeval structure
+  struct timeval now = { .tv_sec = t };
+
+  // Update the RTC
+  settimeofday(&now, NULL);
+
+  Serial.println("Time and date updated on Smart Sensor!");
+
+  // Print the current time from the time_packet structure
+    Serial.print("Year: ");
+    Serial.println(timeinfo.tm_year);
+    Serial.print("Month: ");
+    Serial.println(timeinfo.tm_mon);
+    Serial.print("Day: ");
+    Serial.println(timeinfo.tm_mday);
+    Serial.print("Hour: ");
+    Serial.println(timeinfo.tm_hour);
+    Serial.print("Minute: ");
+    Serial.println(timeinfo.tm_min);
+    Serial.print("Second: ");
+    Serial.println(timeinfo.tm_sec);
+}
+
+union PacketUnion {
+  Packet2 packet2;
+  TimePacket timePacket;
+};
+
+int comando_o_rtc = 0;
 
 void receive_task(void *pvParameter){
   while(true){
       //receivedFlag = false;
 
-      //Estructura Packet2 con payload mas pequeño que estructura Packet
-      Packet2 paquete_received;
+      PacketUnion packetUnion;
+      byte byteArr[sizeof(TimePacket)]; // Make sure the byte array is large enough for the largest packet
 
-      byte byteArr[4];
+      int numBytes = radio.getPacketLength(); //Tamaño del paquete recibido
 
-      //A veces causa la excepcion de que el paquete es mayor a 5 bytes
-      int numBytes = radio.getPacketLength();
-
-      if(numBytes > 5){
-        vTaskSuspend(NULL); //Ignorar si es mayor que 5
+      if(numBytes == sizeof(TimePacket)){
+        Serial.println("Se recibio una actualizacion de RTC.");
+        comando_o_rtc = 1;
       }
+      else if(numBytes <= sizeof(Packet2)){
+        Serial.println("Se recibio un comando.");
+        comando_o_rtc = 0;
+      }
+      else{
+        Serial.println("Se recibio algo que no es un comando ni una actualizacion de RTC.");
+        vTaskSuspend(NULL); // Ignore if it's larger than TimePacket
+      }
+
+      // //Si es un comando se usa esta
+      // Packet2 paquete_received;
+
+      // byte byteArr[4];
+
+      // //A veces causa la excepcion de que el paquete es mayor a 5 bytes
+      // int numBytes = radio.getPacketLength();
+
+      // if(numBytes > 5){
+      //   Serial.println("Se recibio algo que no es un comando.");
+      //   vTaskSuspend(NULL); //Ignorar si es mayor que 5
+      // }
       
       Serial.print("Packet length: ");
       Serial.println(numBytes);
@@ -481,29 +623,63 @@ void receive_task(void *pvParameter){
       if(state == RADIOLIB_ERR_NONE){
         Serial.println(F("[SX1278] Paquete recibido desde estacion base!"));
 
-        memcpy(&paquete_received, byteArr, sizeof(paquete_received));
+        //Pointer para apuntar a la estructura escogida
+        void* paquete_received;
 
-        //Print message ID, sender ID, receiver ID and payload
-        Serial.print("[SX1278] Message ID: "); //Puede utilizarse para indicar que tipo de comando es el que se envio
-        Serial.println(paquete_received.messageId);
-        Serial.print("[SX1278] Sender ID: ");
-        Serial.println(paquete_received.senderId);
-        Serial.print("[SX1278] Receiver ID: ");
-        Serial.println(paquete_received.receiverId);
+        if(comando_o_rtc == 1){
+          //Es una actualizacion RTC
+           memcpy(&packetUnion.timePacket, byteArr, sizeof(packetUnion.timePacket));
 
-        //Print payload
-        Serial.print("[SX1278] Payload: ");
-        Serial.print(paquete_received.payload[0], HEX);
-        Serial.print(" ");
-        // for(int i = 0; i < sizeof(paquete_received.payload); i++){
-        //   Serial.print(paquete_received.payload[i], HEX);
-        //   Serial.print(" ");
-        // }
-        Serial.println();
+           paquete_received = &packetUnion.timePacket;
 
-        if(paquete_received.payload[0] == 0x01){
-          flag_acl = true;
+            //Print message ID, sender ID, receiver ID and payload
+            Serial.print("[SX1278] Message ID: "); 
+            Serial.println(packetUnion.timePacket.messageID);
+            Serial.print("[SX1278] Sender ID: ");
+            Serial.println(packetUnion.timePacket.senderID);
+            Serial.print("[SX1278] Receiver ID: ");
+            Serial.println(packetUnion.timePacket.receiverID);
+
+            if(packetUnion.timePacket.messageID == 255){
+              //Es actualizacion de RTC, actualizo en del ESP32 con la info del payload
+              updateRTC(packetUnion.timePacket.payload, sizeof(packetUnion.timePacket.payload));
+            }
         }
+        else{
+            memcpy(&packetUnion.packet2, byteArr, sizeof(packetUnion.packet2));
+            paquete_received = &packetUnion.packet2;
+
+            Serial.print("[SX1278] Message ID: "); 
+            Serial.println(packetUnion.packet2.messageID);
+            Serial.print("[SX1278] Sender ID: ");
+            Serial.println(packetUnion.packet2.senderID);
+            Serial.print("[SX1278] Receiver ID: ");
+            Serial.println(packetUnion.packet2.receiverID);
+
+            if(packetUnion.packet2.payload[0] == 0x01){
+              flag_acl = true; //Se requiere paquete de forma inmediata
+            }
+          //Es un comando
+        }
+        //memcpy(&paquete_received, byteArr, sizeof(paquete_received));
+
+        // //Print message ID, sender ID, receiver ID and payload
+        // Serial.print("[SX1278] Message ID: "); //Puede utilizarse para indicar que tipo de comando es el que se envio
+        // Serial.println(paquete_received.messageId);
+        // Serial.print("[SX1278] Sender ID: ");
+        // Serial.println(paquete_received.senderId);
+        // Serial.print("[SX1278] Receiver ID: ");
+        // Serial.println(paquete_received.receiverId);
+
+        // //Print payload
+        // Serial.print("[SX1278] Payload: ");
+        // Serial.print(paquete_received.payload[0], HEX);
+        // Serial.print(" ");
+        // // for(int i = 0; i < sizeof(paquete_received.payload); i++){
+        // //   Serial.print(paquete_received.payload[i], HEX);
+        // //   Serial.print(" ");
+        // // }
+        // Serial.println();
       }
       else if(state == RADIOLIB_ERR_CRC_MISMATCH){
         Serial.println("[SX1278] CRC Error!");
@@ -515,6 +691,29 @@ void receive_task(void *pvParameter){
 
       vTaskSuspend(NULL); //Se suspende a si misma hasta el proximo mensaje
     }
+}
+
+//Funcion para enviar confirmacion de setup listo y comenzar sincronizacion de RTC
+void send_imalive_task(void){
+    transmitFlag = true;
+
+    String str = "Smart Sensor Ready"; // Your string here
+    size_t size_data = str.length() + 1; // +1 for the null-terminating character
+
+    // Convert the string to a byte array
+    byte data[size_data];
+    str.getBytes(data, size_data);
+
+    // Send the byte array
+    send_imalive_radiolib(size_data, data);
+    Serial.println("Sending string!");
+    Serial.println();
+
+    delay(500);
+
+    //Start listening to packets again
+
+    transmitFlag = false;
 }
 
 //PRUEBA
@@ -605,30 +804,6 @@ void send_packet(void *pvParameters){
   }  
 }
 
-void setupLoRa(void){
-     // override the default CS, reset, and IRQ pins (optional)
-  LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
-
-  if (!LoRa.begin(433E6)) {             // initialize ratio at 433 MHz
-    Serial.println("LoRa init failed. Check your connections.");
-    while (true);                       // if failed, do nothing
-  }
-  //LoRa.setCodingRate4(7);
-  //LoRa.setPreambleLength(4);
-  //LoRa.setSyncWord(0x12); //Establece la palabra de sincronizacion
-
-  LoRa.setSignalBandwidth(125E3);//7.8E3 hasta 250E3, por defecto es 31.25E3
-  LoRa.setSpreadingFactor(7);//entre 6 y 12
-  //LoRa.enableCrc();
-
-  //LoRa.receive();
-  //LoRa_rxMode();
-
-  //LoRa.onReceive(onReceive);
-
-  Serial.println("LoRa init succeeded.");
-}
-
 void setup_lora_radiolib() {
 
   // initialize SX1278 with default settings
@@ -640,11 +815,6 @@ void setup_lora_radiolib() {
 
   //radio.setPacketReceivedAction(setFlag);
 
-    //Interrupciones
-  //Se configura pin 2 para manejar interrupcion del SX1278
-    pinMode(2, INPUT);
-    attachInterrupt(digitalPinToInterrupt(2), setFlag, RISING);
-
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println(F("LoRa RadioLib init success!"));
   } else {
@@ -653,6 +823,13 @@ void setup_lora_radiolib() {
     while (true);
   }
 
+  //ENVIO MENSAJE DE INICIALIZACION CORRECTA A ESTACION BASE
+  send_imalive_task();
+
+  //Interrupciones
+  //Se configura pin 2 para manejar interrupcion del SX1278
+    pinMode(2, INPUT);
+    attachInterrupt(digitalPinToInterrupt(2), setFlag, RISING);
 
   // start listening for LoRa packets
   Serial.print(F("[SX1278] Starting to listen for commands... "));
