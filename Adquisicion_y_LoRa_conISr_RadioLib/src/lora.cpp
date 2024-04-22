@@ -104,6 +104,10 @@ static float floatArrayX[(SIZE_OF_FLOAT_ARRAY)]; //Creacion de float array
 static float floatArrayY[(SIZE_OF_FLOAT_ARRAY)];
 static float floatArrayZ[(SIZE_OF_FLOAT_ARRAY)];
 
+// float* floatArrayX;
+// float* floatArrayY;
+// float* floatArrayZ;
+
 int contador_paquetes_interno = 0;
 float* selectedFloatArray;
 
@@ -125,6 +129,7 @@ Input -> int contador_paquetes (para decidir cual eje enviar dependiendo de si y
 */
 int generararray(int contador_paquetes)
 {
+
     //Recibiendo cola con datos de aceleracion en estructura de datos 
     //Los datos son un float array dentro del buffer
     if(contador_paquetes == 0){
@@ -151,12 +156,12 @@ int generararray(int contador_paquetes)
           }
           selectedFloatArray = floatArrayX;
     }
-    else if(contador_paquetes == 32) // (NUM_DATOS/CHUNKSIZE - 1)
+    else if(contador_paquetes == NUM_DATOS/CHUNK_SIZE) //32/64/128...
     {
           contador_paquetes_interno = 0;
           selectedFloatArray = floatArrayY;
     }
-    else if(contador_paquetes == 64) // (NUM_DATOS/CHUNKSIZE - 1)*2
+    else if(contador_paquetes == NUM_DATOS/CHUNK_SIZE*2) // (NUM_DATOS/CHUNKSIZE - 1)*2
     {
           contador_paquetes_interno = 0;
           selectedFloatArray = floatArrayZ;
@@ -558,6 +563,10 @@ void send_packet(void *pvParameters){
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
     if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
+
+      //AQUI SE PUEDE ENVIAR TEMPERATURA, HUMEDAD Y TIMESTAMP INICIAL EN OTRO PAQUETE
+
+
       Serial.println("Reactivando tareas de adquisicion de datos!");
       contador_paquetes = 0;
       vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
