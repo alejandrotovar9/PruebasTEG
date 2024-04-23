@@ -2,7 +2,6 @@
 #include <Adafruit_MPU6050.h>
 #include <MPU9250.h>
 #include <SPI.h>              // include libraries
-#include <LoRa.h>
 #include <RadioLib.h>
 #include <string.h>
 #include <time.h>
