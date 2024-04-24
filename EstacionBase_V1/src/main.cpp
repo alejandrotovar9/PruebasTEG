@@ -115,7 +115,7 @@ void setup()
   xTaskCreatePinnedToCore(
       send_mqtt,          /* Function to implement the task */
       "send_mqtt",        /* Name of the task */
-      1024 * 6,              /* Stack size in words */
+      1024 * 12,              /* Stack size in words */
       NULL,                  /* Task input parameter */
       4,                     /* Priority of the task */
       &xHandle_send_mqtt, /* Task handle. */

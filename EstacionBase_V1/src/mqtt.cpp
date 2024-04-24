@@ -98,6 +98,8 @@ void setup_mqtt() {
 
   mqttClient.setBufferSize(40000);
 
+  //mqttClient.setCallback(callback);
+
   //Print the buffer size
   Serial.println("Buffer size: ");
   Serial.println(mqttClient.getBufferSize());
@@ -108,9 +110,73 @@ void setup_mqtt() {
 //Creando estructura de tipo BufferACL para recibir cola
 BufferACL bufferaceleracion;
 
+// Define the maximum chunk size
+const size_t CHUNK_SIZE_MQTT = 5000;
+
+// Function to split a string into chunks and send each chunk as a separate message
+void sendInChunks(const String& topic, const String& message) {
+    for (size_t i = 0; i < message.length(); i += CHUNK_SIZE_MQTT) {
+
+        // Calculate the number of chunks
+        size_t numChunks = (message.length() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
+        // Print the number of chunks
+        Serial.println("Number of chunks: " + String(numChunks));
+        // Get the next chunk of the message
+        String chunk = message.substring(i, min(i + CHUNK_SIZE_MQTT, message.length()));
+
+        // Send the chunk as a separate message
+        mqttClient.publish((topic + String(i / CHUNK_SIZE_MQTT)).c_str(), chunk.c_str());
+
+        // Wait for a short delay to avoid flooding the network
+        delay(200);
+    }
+}
+
+void sendAxis(const char* topic, char* axis, const float* data, size_t dataSize) {
+    // Create a DynamicJsonDocument
+    DynamicJsonDocument doc(15000);
+
+    // Add the float array to the document
+    JsonArray array = doc.createNestedArray(axis);
+
+    // Add data to the array
+    for (size_t i = 0; i < dataSize; i++) {
+        // Limit the float to 2 decimal places
+        float value = round(data[i] * 100.0) / 100.0;
+        array.add(value);
+    }
+
+    // // Add data to the array
+    // for (size_t i = 0; i < dataSize; i++) {
+    //     array.add(data[i]);
+    // }
+
+    // Serialize the document to a string
+    String json;
+    serializeJson(doc, json);
+
+    
+    //Print the size of the JSON Object in bytes
+    Serial.println("Size of the JSON Object: ");
+    Serial.println(json.length());
+
+    // Send the JSON string in chunks
+    //sendInChunks(topic, json);
+    if(mqttClient.publish(topic, json.c_str()))
+        {
+            Serial.println("Message published to MQTT topic");
+        } else {
+            Serial.println("Error publishing message to MQTT topic");
+            // if((!wifiClient.connected())){
+            // reconnect();
+            // }
+        }
+}
+
 void send_mqtt(void *pvParameters){
     while(true){
-        //vTaskSuspend(xHandle_keepalive_task);
+        vTaskSuspend(xHandle_keepalive_task);
 
         //mqttClient.loop();
 
@@ -130,45 +196,58 @@ void send_mqtt(void *pvParameters){
         // Calculate the size of the JSON document
         //size_t jsonCapacity = JSON_ARRAY_SIZE(ARRAY_SIZE) * 3 + JSON_OBJECT_SIZE(3);
 
-        // Create a DynamicJsonDocument with the calculated capacity
-        DynamicJsonDocument doc(40000);
+        // // Create a DynamicJsonDocument with the calculated capacity
+        // DynamicJsonDocument doc(40000);
+
     
-        // Add the float arrays to the document
-        JsonArray arrayX = doc.createNestedArray("x");
-        //JsonArray arrayY = doc.createNestedArray("y");
-        //JsonArray arrayZ = doc.createNestedArray("z");
+        // // Add the float arrays to the document
+        // JsonArray arrayX = doc.createNestedArray("x");
+        // //JsonArray arrayY = doc.createNestedArray("y");
+        // //JsonArray arrayZ = doc.createNestedArray("z");
 
-        //Print first 5 values from bufferX
-        for (size_t i = 0; i < 5; i++) {
-            Serial.println(bufferaceleracion.bufferX[i]);
-        }
+        // //Print first 5 values from bufferX, bufferY and bufferZ
+        // for (size_t i = 0; i < 5; i++) {
+        //     Serial.print(bufferaceleracion.bufferX[i]);
+        //     Serial.print(" ");
+        //     Serial.print(bufferaceleracion.bufferY[i]);
+        //     Serial.print(" ");
+        //     Serial.print(bufferaceleracion.bufferZ[i]);
+        //     Serial.println();
+        // }
 
-        for (size_t i = 0; i < ARRAY_SIZE; i++) {
-            arrayX.add(bufferaceleracion.bufferX[i]);
-            //arrayY.add(bufferaceleracion.bufferY[i]);
-            //arrayZ.add(bufferaceleracion.bufferZ[i]);
-        }
+        // for (size_t i = 0; i < ARRAY_SIZE; i++) {
+        //     arrayX.add(bufferaceleracion.bufferX[i]);
+        //     //arrayY.add(bufferaceleracion.bufferY[i]);
+        //     //arrayZ.add(bufferaceleracion.bufferZ[i]);
+        // }
         
-          // Serialize the document to a string
-        String json;
-        serializeJson(doc, json);
-
-        //Print the size of the JSON Object in bytes
-        Serial.println("Size of the JSON Object: ");
-        Serial.println(json.length());
+        //   // Serialize the document to a string
+        // String json;
 
 
-        if(mqttClient.publish(mqttTopic1, json.c_str())){
-                Serial.println("Message published to MQTT topic");
-        } else {
-            Serial.println("Error publishing message to MQTT topic");
-            if((!wifiClient.connected())){
-            reconnect();
-            }
-        }
+        // serializeJson(doc, json);
+
+        // //Print the size of the JSON Object in bytes
+        // Serial.println("Size of the JSON Object: ");
+        // Serial.println(json.length());
+
+
+        // if(mqttClient.publish(mqttTopic1, json.c_str()))
+        // {
+        //         Serial.println("Message published to MQTT topic");
+        // } else {
+        //     Serial.println("Error publishing message to MQTT topic");
+        //     if((!wifiClient.connected())){
+        //     reconnect();
+        //     }
+        // }
+
+        sendAxis("esp32/x", "x", bufferaceleracion.bufferX, ARRAY_SIZE);
+        sendAxis("esp32/y", "y", bufferaceleracion.bufferY, ARRAY_SIZE);
+        sendAxis("esp32/z", "z", bufferaceleracion.bufferZ, ARRAY_SIZE);
 
         // Wait for some time before publishing again
-        //vTaskResume(xHandle_keepalive_task);
+        vTaskResume(xHandle_keepalive_task);
         vTaskSuspend(NULL);
     }
 }
