@@ -1,6 +1,6 @@
 #include <lora_header.h>
 
-BufferACL buffer_prueba;
+static BufferACL buffer_prueba;
 
 // OJO UNO ES 0xFF y el otro 0xbb, para que tengan diferentes identificadores
 byte localAddress = 0xBB; // address of this device
@@ -36,6 +36,7 @@ float *bufferactual;
 1 - datos
 */
 int data_o_comando = 0;
+bool datacorrupta = false;
 
 byte byteArr[1];
 
@@ -198,8 +199,8 @@ void receive_task(void *pvParameter)
       int numBytes = radio.getPacketLength();
       byte byteArr[numBytes]; // El de mayor tamaño
 
-      Serial.print("Valor actual de datacomando> ");
-      Serial.println(data_o_comando);
+      // Serial.print("Valor actual de datacomando> ");
+      // Serial.println(data_o_comando);
 
       if (numBytes == 22)
       {
@@ -214,6 +215,7 @@ void receive_task(void *pvParameter)
       else
       {
         Serial.println("Se recibio algo que no es un comando ni una actualizacion de RTC.");
+        datacorrupta = true;
         //vTaskSuspend(NULL); // Ignore if it's larger than TimePacket
       }
 
@@ -221,7 +223,7 @@ void receive_task(void *pvParameter)
       Serial.println(numBytes);
       int state = radio.readData(byteArr, numBytes);
 
-      if (state == RADIOLIB_ERR_NONE || state == 0)
+      if (state == RADIOLIB_ERR_NONE || state == 0 && datacorrupta == false)
       {
         // packet was successfully received
         Serial.println(F("[SX1278] Paquete recibido!"));
@@ -254,6 +256,17 @@ void receive_task(void *pvParameter)
               Serial.println("");
 
               leer_datos(sizeof(packetUnion.packet1.payload), packetUnion.packet1.messageID, packetUnion.packet1.senderID, packetUnion.packet1.receiverID, packetUnion.packet1.payload);
+
+              //Enviar estructura bufferprueba a queue
+              if(packetUnion.packet1.messageID == 95){
+                if(xQueueSend(xQueueBufferACL, &buffer_prueba, portMAX_DELAY)){
+                  Serial.println("Se envio la estructura bufferprueba a la cola xQueueBufferACL");
+                  vTaskResume(xHandle_send_mqtt);
+                }
+                else{
+                  Serial.println("No se pudo enviar la estructura bufferprueba a la cola xQueueBufferACL");
+                }
+              }
 
               break;
 
@@ -300,6 +313,14 @@ void receive_task(void *pvParameter)
         // some other error occurred
         Serial.print(F("[SX1278] Failed, code "));
         Serial.println(state);
+        contador_errores++;
+      }
+      else if (datacorrupta)
+      {
+        // some other error occurred
+        Serial.print(F("[SX1278] Data corrupta..."));
+        Serial.println(state);
+        datacorrupta = false; ///Reinicio bandera
         contador_errores++;
       }
 
@@ -629,7 +650,6 @@ void send_task(void *pvParameters)
     }
   }
 }
-
 
 
 void setup_lora(void)

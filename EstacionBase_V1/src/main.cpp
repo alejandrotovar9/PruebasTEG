@@ -1,6 +1,7 @@
 #include <tasks_queues.h>
 #include <handles.h>
 #include <lora_header.h>
+#include <mqtt_header.h>
 
 TaskHandle_t xHandle_blink;
 
@@ -44,6 +45,9 @@ void setup()
 {
   Serial.begin(115200);
 
+  //Crear cola para enviar estructura de tipo BufferACL
+  xQueueBufferACL = xQueueCreate(3, sizeof(BufferACL));
+
   pinMode(12, OUTPUT);
 
   pinMode(32, INPUT);
@@ -53,6 +57,8 @@ void setup()
   // pinMode(2, INPUT_PULLDOWN);
 
   setup_wifi();
+
+  setup_mqtt();
 
   // Init and get the time
   /*---------set with NTP---------------*/
@@ -87,7 +93,7 @@ void setup()
   xTaskCreatePinnedToCore(
       send_RTC_task,          /* Function to implement the task */
       "send_RTC_task",        /* Name of the task */
-      1024 * 4,               /* Stack size in words */
+      1024 * 2,               /* Stack size in words */
       NULL,                   /* Task input parameter */
       1,                      /* Priority of the task */
       &xHandle_send_RTC_task, /* Task handle. */
@@ -98,13 +104,25 @@ void setup()
   xTaskCreatePinnedToCore(
       receive_task,          /* Function to implement the task */
       "receive_task",        /* Name of the task */
-      1024 * 5,              /* Stack size in words */
+      1024 * 4,              /* Stack size in words */
       NULL,                  /* Task input parameter */
-      2,                     /* Priority of the task */
+      6,                     /* Priority of the task */
       &xHandle_receive_task, /* Task handle. */
       0);                    /* Core where the task should run */
 
   vTaskSuspend(xHandle_receive_task);
+
+  xTaskCreatePinnedToCore(
+      send_mqtt,          /* Function to implement the task */
+      "send_mqtt",        /* Name of the task */
+      1024 * 6,              /* Stack size in words */
+      NULL,                  /* Task input parameter */
+      4,                     /* Priority of the task */
+      &xHandle_send_mqtt, /* Task handle. */
+      0);                    /* Core where the task should run */
+
+  vTaskSuspend(xHandle_send_mqtt);
+
 
   xTaskCreatePinnedToCore(
       blink,          /* Function to implement the task */
@@ -118,5 +136,5 @@ void setup()
 
 void loop()
 {
-  delay(1000);
+ delay(1000);
 }

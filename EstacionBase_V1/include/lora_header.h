@@ -18,7 +18,7 @@ struct BufferTempHumedad
 // Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL
 {
-  long int buffer_timestamp[NUM_DATOS - 1] = {};
+  //long int buffer_timestamp[NUM_DATOS - 1] = {};
   float bufferX[NUM_DATOS] = {};
   float bufferY[NUM_DATOS] = {};
   float bufferZ[NUM_DATOS] = {};
