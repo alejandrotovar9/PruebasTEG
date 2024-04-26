@@ -29,6 +29,13 @@ void fillArray(float* array, size_t size){
   }
 }
 
+//Rutina de ISR por software en caso de recibir una peticion por MQTT
+void IRAM_ATTR ISR_MQTT_Request()
+{
+  transmitFlag = true;
+  vTaskResume(xHandle_send_task);
+}
+
 
 void reconnect() {
   // Loop until we're reconnected
@@ -65,6 +72,27 @@ void keepalive_task(void *pvParameters) {
     }
 }
 
+// Step 1: Define the callback function
+void messageReceived(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+
+  // Step 2: Convert payload to string
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  // Step 3: Check if the message is "ON"
+  if (message == "ON") {
+    // Step 4: Call the software ISR
+    Serial.println("Peticion de datos via MQTT... Enviando paquete Lora si no se estan enviando datos");
+    if(!transmitFlag){
+      ISR_MQTT_Request();
+    }
+  }
+}
+
 void setup_mqtt() {
 
   // Set up MQTT client
@@ -78,7 +106,15 @@ void setup_mqtt() {
       // Connected to MQTT broker
       Serial.println("Connected to MQTT broker...");
 
+      digitalWrite(22, HIGH);
+
       mqttClient.publish("test/topic", "Hello, World!");
+
+      // Step 2: Subscribe to a topic
+      mqttClient.subscribe("esp32/command");
+
+      // Step 3: Set the callback function
+      mqttClient.setCallback(messageReceived);
 
       break;
     } else {

@@ -50,6 +50,8 @@ void setup()
 
   pinMode(12, OUTPUT);
 
+  pinMode(22, OUTPUT);
+
   pinMode(32, INPUT);
   attachInterrupt(digitalPinToInterrupt(32), ISR_button, RISING);
 
