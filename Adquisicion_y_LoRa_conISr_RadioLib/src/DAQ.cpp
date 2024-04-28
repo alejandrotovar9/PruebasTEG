@@ -1,4 +1,5 @@
 #include <DAQ.h>
+#include <stdio.h>
 
 //INICIALIZACION DE ESTRUCTURAS AQUI PORQUE ES DONDE LAS NECESITO
 BufferTempHumedad estruc_buffer_datos;
@@ -70,7 +71,7 @@ void leerDatosACL(void *pvParameters){
   while(true){
 
       mpu.getEvent(&a, &g, &tem);
-
+    
       ACLData aclData; //Estructura a ser llenada con 3 ejes
 
       //Se llena estructura con datos nuevos en m/s^2 ya que estan multiplicados por la ctte SENSORS_GRAVITY_EARTH, si se quieren en g se divide por esta constante
@@ -83,6 +84,7 @@ void leerDatosACL(void *pvParameters){
       aclData.AclY = a.acceleration.y - acl_offset[1]; 
       aclData.AclZ = a.acceleration.z - acl_offset[2];
 
+      //esp_task_wdt_reset();
       //COMO SUSTITUIR ESTE DELAY??? LEER SOLO CUANDO LA DATA ESTE LISTA
       if(F_SAMPLING != 0){
         vTaskDelay(F_SAMPLING/portTICK_PERIOD_MS); //Reducir tiempo de muestreo
@@ -138,15 +140,13 @@ void leerDatosACL(void *pvParameters){
           digitalWrite(LED_EST1, HIGH);
           //Suspende tarea de LED IDLE
           vTaskSuspend(xHandle_blink);
-        }
-
-      //continue;
-      Serial.print(".");
+      }
 
       //Envia los datos a la cola solo si se supero el limite
       if(flag_limite != 0 || flag_acl == true || flag_time == 1)
       {
         if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
+          //esp_task_wdt_reset();
           vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
         }
         else{
@@ -155,20 +155,13 @@ void leerDatosACL(void *pvParameters){
       }
       else{
         //Datos dentro de valores normales
+        if(esp_task_wdt_reset() == ESP_ERR_INVALID_STATE){
+          Serial.println("Failed to reset WDT");
+        }
         continue;
       }
-
-      //Envia los datos a la cola aclQueue
-      // if(xQueueSend(aclQueue, &aclData, portMAX_DELAY)){
-      //   //Serial.println("Se envio la cola con datos...");
-      //   vTaskResume(xHandle_crearBuffer); //Se llenan los buffers para enviar los datos
-      // }
-      // else{
-      //   Serial.println("No se envio la cola...");
-      // }
-
-      //vTaskResume(xHandle_crearBuffer); //Reinicia la tarea para crear buffer
   }
+  //esp_task_wdt_delete(NULL);
 }
 
 void mostrar_resultados(void){
@@ -224,12 +217,12 @@ void crearBuffer(void *pvParameters){
         Serial.print("Valor final de k luego de llenar los datos: ");
         Serial.println(k);
 
-        // Serial.println("Suspendiendo tarea de recepcion de datos de temperatura...");
-        // vTaskSuspend(xHandle_readBMETask); //Suspendo la tarea de recepcion de datos de temperatura
-        // Serial.println("Suspendiendo la tarea de recepcion de datos de inclinacion...");
-        // vTaskSuspend(xHandle_readMPU9250);
-
         Serial.println("Reiniciando banderas de limite...");
+
+        Serial.print("Memoria disponible: ");
+        Serial.println(ESP.getFreeHeap());
+        Serial.println(ESP.getFreePsram());
+        Serial.println(uxTaskGetStackHighWaterMark(NULL));
 
                 //Reiniciando para sobreescribir en buffers "nuevos" en la siguiente accion
         k = 0;
@@ -246,7 +239,7 @@ void crearBuffer(void *pvParameters){
         //Apago led indicativo de toma de datos
         digitalWrite(LED_EST1, LOW);
 
-        mostrar_resultados();
+        //mostrar_resultados();
 
         //Envio los resultados a la cola
         if(xQueueSend(tramaLoRaQueue, &struct_buffer_acl, portMAX_DELAY)){
@@ -269,6 +262,8 @@ void crearBuffer(void *pvParameters){
     else{
       Serial.println("No se recibio la cola correctamente...");
     };
+
+    //vPortFree(NULL);
  
     //Se suspende esta tarea para esperar la toma de datos
     vTaskSuspend(xHandle_crearBuffer);
@@ -441,6 +436,18 @@ void recInclinacion(void *pvParameters){
   }
 }
 
+// Assuming you have the eTaskState enumeration defined somewhere
+const char* TaskStateToString(eTaskState state) {
+    switch (state) {
+        case eReady: return "eReady";
+        case eRunning: return "eRunning";
+        case eBlocked: return "eBlocked";
+        case eSuspended: return "eSuspended";
+        case eDeleted: return "eDeleted";
+        default: return "Unknown";
+    }
+}
+
 //Manejo del blink de IDLE
 void blink(void * pvParameters ) {
     while (1) {
@@ -450,6 +457,9 @@ void blink(void * pvParameters ) {
         digitalWrite(LED_IDLE, LOW);
         //Serial.println("Led apagado");
         delay(1000);
+        //Print the current state of a task
+        // eTaskState state = eTaskGetState(xHandle_leerDatosACL);
+        // printf("Task state: %s\n", TaskStateToString(state));
     }
 }
 
@@ -540,10 +550,6 @@ void setup_acl_MPU6050(void){
   //Introduce un retardo segun documentacion
   mpu.setFilterBandwidth(MPU6050_BAND_260_HZ); //GYRO OUTPUT RATE is 1KHz when DLPF enabled
   mpu.setSampleRateDivisor(0); //Sample Rate = 1KHz/(1 + SMPLRT_DIV)
-
-  //VER COMO HACER SELFTEST Y CALIBRACION DEL SENSOR MPU6050
-  //REVISAR LIBRERIA DEL SENOR DE GITHUB QUE HACE SELFTEST Y CALIBRACION Y AJUSTAR EL CODIGO AQUI
-
 }
 
 void setup_mpu9250(){

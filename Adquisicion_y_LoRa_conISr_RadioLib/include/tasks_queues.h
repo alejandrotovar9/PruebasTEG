@@ -1,11 +1,11 @@
 #include <Adafruit_BME280.h>
 #include <Adafruit_MPU6050.h>
 #include <MPU9250.h>
-#include <SPI.h>              // include libraries
 #include <RadioLib.h>
 #include <string.h>
 #include <time.h>
 #include <ESP32Time.h>
+#include <esp_task_wdt.h>
 
 
 #include <freertos/FreeRTOS.h>
