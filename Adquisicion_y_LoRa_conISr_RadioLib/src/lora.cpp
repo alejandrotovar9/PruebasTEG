@@ -27,6 +27,9 @@ int contador_paquetes = 0;
 int error_count = 0;
 int general_count = 0;
 
+//Contador de iteraciones generales, peticiones hasta ahora
+int iteraciones_peticiones = 0;
+
 BufferACL trama; //Estructura de datos para recibir la trama de aceleracion
 
 //Objeto ESP32Time
@@ -564,14 +567,28 @@ void send_packet(void *pvParameters){
     //Suspendo esta tarea hasta que se reciba otro mensaje
     if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
 
+      iteraciones_peticiones++;
+      Serial.print("Iteraciones: ");
+      Serial.println(iteraciones_peticiones);
+
+      if(iteraciones_peticiones == 2){
+        Serial.println("Reiniciando micro...");
+        esp_restart();
+      }
+
       //AQUI SE PUEDE ENVIAR TEMPERATURA, HUMEDAD Y TIMESTAMP INICIAL EN OTRO PAQUETE
 
 
       Serial.println("Reactivando tareas de adquisicion de datos!");
       contador_paquetes = 0;
-      vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
+      vTaskResume(xHandle_leerDatosACL);
       vTaskResume(xHandle_readBMETask);
       vTaskResume(xHandle_readMPU9250);
+
+        Serial.print("Memoria disponible en send task: ");
+        Serial.println(ESP.getFreeHeap());
+        Serial.println(ESP.getFreePsram());
+        Serial.println(uxTaskGetStackHighWaterMark(NULL));
 
       transmitFlag = false; //Se desactiva el modo envio y se comienza a escuchar otra vez
         // start listening for LoRa packets
