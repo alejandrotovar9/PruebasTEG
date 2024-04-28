@@ -38,6 +38,20 @@ void setup() {
     // Failed to create the queue.
   }
 
+    // // Set WDT timeout to 5 seconds
+    if(esp_task_wdt_init(10, true) == ESP_OK){
+      Serial.println("WDT initialized.");
+    }else{
+      Serial.println("WDT not initialized.");
+    }
+
+    // // Add to WDT
+    esp_err_t result = esp_task_wdt_add(xHandle_leerDatosACL);
+    if(result != ESP_OK) {
+        Serial.println("Failed to add to WDT");
+    }
+
+
   //Setting ouput pins for leds
   pinMode(LED_EST1, OUTPUT);
   pinMode(LED_IDLE, OUTPUT);
@@ -64,15 +78,15 @@ void setup() {
   //Creacion de tareas
 
     //Tareas a ejecutarse en el Nucleo 0
-    xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 2, &xHandle_leerDatosACL, 0);
-    xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*6, NULL, 2, &xHandle_crearBuffer, 0);
+    xTaskCreatePinnedToCore(leerDatosACL, "leerDatosACL", 1024*2, NULL, 4, &xHandle_leerDatosACL, 0);
+    xTaskCreatePinnedToCore(crearBuffer, "crearBuffer", 1024*6, NULL, 3, &xHandle_crearBuffer, 0);
     vTaskSuspend(xHandle_crearBuffer);
 
     //Tareas a ejecutarse en el Nucleo 1
     xTaskCreatePinnedToCore(readBMETask, "readBMETask", 1024*2, NULL, 1, &xHandle_readBMETask, 1);
     xTaskCreatePinnedToCore(receive_temphum, "receiveDataTask", 1024*2, NULL, 1, &xHandle_receive_temphum, 1);
     vTaskSuspend(xHandle_receive_temphum);
-    xTaskCreatePinnedToCore(blink, "readBMETask", 1024, NULL, 1, &xHandle_blink, 1);
+    xTaskCreatePinnedToCore(blink, "readBMETask", 1024*4, NULL, 1, &xHandle_blink, 1);
     //vTaskSuspend(xHandle_blink);
   
 
@@ -97,6 +111,8 @@ void setup() {
 }
 
 void loop() {
-  delay(1000);
+  //It is part of the WDT init by default so we have to reset de WDT in here as well
+  esp_task_wdt_delete(NULL);
+  delay(30000);
   // Do nothing
 }
