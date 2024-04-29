@@ -181,7 +181,6 @@ int leer_datos(size_t packetSize, byte incomingMsgId, byte sender, byte recipien
   }
 }
 
-
 void receive_task(void *pvParameter)
 {
   while (true)
@@ -212,6 +211,11 @@ void receive_task(void *pvParameter)
         Serial.println("Se recibieron datos del SS.");
         data_o_comando = 0;
       }
+      else if (numBytes == 28)
+      {
+        Serial.println("Se recibieron datos de temp y humedad.");
+        data_o_comando = 2;
+      }
       else
       {
         Serial.println("Se recibio algo que no es un comando ni una actualizacion de RTC.");
@@ -228,8 +232,8 @@ void receive_task(void *pvParameter)
         // packet was successfully received
         Serial.println(F("[SX1278] Paquete recibido!"));
 
-        Serial.print("Valor actual de datacomando> ");
-        Serial.println(data_o_comando);
+        // Serial.print("Valor actual de datacomando> ");
+        // Serial.println(data_o_comando);
 
         contador++;
 
@@ -257,11 +261,11 @@ void receive_task(void *pvParameter)
 
               leer_datos(sizeof(packetUnion.packet1.payload), packetUnion.packet1.messageID, packetUnion.packet1.senderID, packetUnion.packet1.receiverID, packetUnion.packet1.payload);
 
-              //Enviar estructura bufferprueba a queue
+              //CAMBIAR 95 A NUMDATOS OJOOOOOOOOOOOOOO
               if(packetUnion.packet1.messageID == 95){
                 if(xQueueSend(xQueueBufferACL, &buffer_prueba, portMAX_DELAY)){
                   Serial.println("Se envio la estructura bufferprueba a la cola xQueueBufferACL");
-                  vTaskResume(xHandle_send_mqtt);
+                  //vTaskResume(xHandle_send_mqtt);
                 }
                 else{
                   Serial.println("No se pudo enviar la estructura bufferprueba a la cola xQueueBufferACL");
@@ -285,6 +289,41 @@ void receive_task(void *pvParameter)
                 Serial.println("Listo para enviar RTC...");
                 transmitFlag = true; //Activo bandera de envio
                 vTaskResume(xHandle_send_RTC_task);
+              }
+              break;
+          case 2:
+              memcpy(&packetUnion.thipacket, byteArr, numBytes);
+
+              Serial.print("[SX1278] Message ID: ");
+              Serial.println(packetUnion.thipacket.messageID);
+              Serial.print("[SX1278] Sender ID: ");
+              Serial.println(packetUnion.thipacket.senderID);
+              Serial.print("[SX1278] Receiver ID: ");
+              Serial.println(packetUnion.thipacket.receiverID);
+
+              Serial.print(F("[SX1278] Payload:\t\t"));
+              //Print the temperature and humidity
+              Serial.print(F("Temperature: "));
+              Serial.print(packetUnion.thipacket.temperature);
+              Serial.print(F(" Humidity: "));
+              Serial.println(packetUnion.thipacket.humidity);
+              //Print the angle values
+              Serial.print(F("Yaw: "));
+              Serial.print(packetUnion.thipacket.yaw);
+              Serial.print(F(" Pitch: "));
+              Serial.print(packetUnion.thipacket.pitch);
+              Serial.print(F(" Roll: "));
+              Serial.println(packetUnion.thipacket.roll);
+
+
+              if(packetUnion.thipacket.messageID == 200){
+                if(xQueueSend(xQueueTempHumInc, &packetUnion.thipacket, portMAX_DELAY)){
+                  Serial.println("Se envio la estructura THI a la cola");
+                  vTaskResume(xHandle_send_mqtt_thi);
+                }
+                else{
+                  Serial.println("No se pudo enviar la estructura bufferprueba a la cola xQueueBufferACL");
+                }
               }
               break;
         }

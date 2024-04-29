@@ -10,6 +10,7 @@ TaskHandle_t xHandle_send_RTC_task = NULL;
 //Handle para tareas de MQTT
 TaskHandle_t xHandle_send_mqtt = NULL;
 TaskHandle_t xHandle_keepalive_task= NULL;
+TaskHandle_t xHandle_send_mqtt_thi = NULL;
 
 // //Handle de tareas de recepcion
 TaskHandle_t xHandle_receive_task = NULL;
@@ -17,3 +18,4 @@ TaskHandle_t xHandle_receive_task = NULL;
 //Handle de las colas del modulo de adquisicion inicializadas
 QueueHandle_t xQueue;
 QueueHandle_t xQueueBufferACL;
+QueueHandle_t xQueueTempHumInc;

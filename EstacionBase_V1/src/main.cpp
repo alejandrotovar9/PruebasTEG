@@ -47,6 +47,8 @@ void setup()
 
   //Crear cola para enviar estructura de tipo BufferACL
   xQueueBufferACL = xQueueCreate(3, sizeof(BufferACL));
+  xQueueTempHumInc = xQueueCreate(1, sizeof(THIPacket));
+
 
   pinMode(12, OUTPUT);
 
@@ -124,6 +126,17 @@ void setup()
       0);                    /* Core where the task should run */
 
   vTaskSuspend(xHandle_send_mqtt);
+
+  xTaskCreatePinnedToCore(
+      send_mqtt_thi,          /* Function to implement the task */
+      "send_mqtt_thi",        /* Name of the task */
+      1024 * 4,              /* Stack size in words */
+      NULL,                  /* Task input parameter */
+      4,                     /* Priority of the task */
+      &xHandle_send_mqtt_thi, /* Task handle. */
+      0);                    /* Core where the task should run */
+
+  vTaskSuspend(xHandle_send_mqtt_thi);
 
 
   xTaskCreatePinnedToCore(

@@ -19,12 +19,14 @@ extern TaskHandle_t xHandle_send_RTC_task;
 //Handle para tareas de MQTT
 extern TaskHandle_t xHandle_send_mqtt;
 extern TaskHandle_t xHandle_keepalive_task;
+extern TaskHandle_t xHandle_send_mqtt_thi;
 
 // //Handle de tareas de recepcion
 extern TaskHandle_t xHandle_receive_task;
 
 //Handle para Queue de envio de datos de buffer recibido via lora a ser enviado via MQTT
 extern QueueHandle_t xQueueBufferACL;
+extern QueueHandle_t xQueueTempHumInc;
 
 //DECLARACION DE OBJETOS COMO EXTERNS PARA PODER USARLOS EN OTROS ARCHIVOS
 extern ESP32Time rtc;

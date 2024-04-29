@@ -4,7 +4,8 @@
 
 //MQTT configuration
 //const char* mqttBroker = "192.168.1.106";
-const char* mqttBroker = "192.168.113.64";
+//const char* mqttBroker = "192.168.113.64";
+const char* mqttBroker = "192.168.205.64";
 //const char* mqttBroker = "192.168.20.64"; //TLF
 
 const int mqttPort = 1883;
@@ -21,13 +22,6 @@ const size_t ARRAY_SIZE = 1024;
 // static float floatArrayZ[ARRAY_SIZE];
 
 long lastReconnectAttempt = 0;
-
-//Function the fill the array with floats to form a sine wave
-void fillArray(float* array, size_t size){
-  for (size_t i = 0; i < size; i++) {
-    array[i] = sin(2 * PI * 100 * i / size) + 0.7*sin(2 * PI * 200 * i / size) + 0.5*sin(2 * PI * 300 * i / size);
-  }
-}
 
 //Rutina de ISR por software en caso de recibir una peticion por MQTT
 void IRAM_ATTR ISR_MQTT_Request()
@@ -66,9 +60,11 @@ void keepalive_task(void *pvParameters) {
         //         reconnect();
         //     }
         // } else {
+
         mqttClient.publish("test/topic", "Hello, World!");
         mqttClient.loop();
         vTaskDelay(5000 / portTICK_PERIOD_MS); // Check every 5 seconds
+
     }
 }
 
@@ -111,7 +107,12 @@ void setup_mqtt() {
       mqttClient.publish("test/topic", "Hello, World!");
 
       // Step 2: Subscribe to a topic
-      mqttClient.subscribe("esp32/command");
+      if(mqttClient.subscribe("esp32/command")){
+        Serial.println("Suscrito a topico esp32/command");
+      }
+      else{
+        Serial.println("Error al intentar suscribirse a topico esp32/command");
+      }
 
       // Step 3: Set the callback function
       mqttClient.setCallback(messageReceived);
@@ -119,6 +120,8 @@ void setup_mqtt() {
       break;
     } else {
       Serial.println("Error connecting to MQTT broker...");
+      //mqttClient.setServer(mqttBroker2, mqttPort); //Intentando con otra IP que suele asignarse a la PC
+      //Configurar numero de intentos de reconexion
       delay(1000);
     }
   }
@@ -169,6 +172,51 @@ void sendInChunks(const String& topic, const String& message) {
     }
 }
 
+void sendTHI(const char* topic, int data){
+    // // Convert the float to a string
+    // char data_str[50];
+    // dtostrf(data, 6, 2, data_str); // 6 is minimum width, 2 is precision; modify as needed
+
+    // Convert the int to a string
+    char data_str[50];
+    itoa(data, data_str, 10); // 10 is the base for decimal numbers
+
+    // Send the string
+    if(mqttClient.publish(topic, data_str)) {
+        Serial.println("Message published to MQTT topic");
+    } else {
+        Serial.println("Error publishing message to MQTT topic");
+    }
+}
+
+void send_mqtt_thi(void *pvParameter){
+  while(1){
+    vTaskSuspend(xHandle_keepalive_task);
+
+    THIPacket thipacket;
+
+    //Receive float arrays from queue
+    if(xQueueReceive(xQueueTempHumInc, &thipacket, portMAX_DELAY)){
+        Serial.println("Received from queue TempInc");
+    } else {
+        Serial.println("Error receiving from queue");
+    }
+
+    delay(200);
+
+    //FALTA EL TIMESTAMP OJO
+    sendTHI("esp32/temp", thipacket.temperature);
+    sendTHI("esp32/hum", thipacket.humidity);
+    sendTHI("esp32/inc_y", thipacket.yaw);
+    sendTHI("esp32/inc_p", thipacket.pitch);
+    sendTHI("esp32/inc_r", thipacket.roll);
+    sendTHI("esp32/timestamp", (int)thipacket.timestamp);
+
+    vTaskResume(xHandle_send_mqtt);
+    vTaskSuspend(NULL);
+  }
+}
+
 void sendAxis(const char* topic, char* axis, const float* data, size_t dataSize) {
     // Create a DynamicJsonDocument
     DynamicJsonDocument doc(15000);
@@ -210,9 +258,10 @@ void sendAxis(const char* topic, char* axis, const float* data, size_t dataSize)
         }
 }
 
+//Se activa una vez se reciben todos los paquetes Lora...
 void send_mqtt(void *pvParameters){
     while(true){
-        vTaskSuspend(xHandle_keepalive_task);
+        //vTaskSuspend(xHandle_keepalive_task);
 
         //mqttClient.loop();
 
@@ -226,57 +275,6 @@ void send_mqtt(void *pvParameters){
         }
 
         delay(500);
-
-        //mqttClient.publish("test/topic", "Hello, World from send mqtt!");
-
-        // Calculate the size of the JSON document
-        //size_t jsonCapacity = JSON_ARRAY_SIZE(ARRAY_SIZE) * 3 + JSON_OBJECT_SIZE(3);
-
-        // // Create a DynamicJsonDocument with the calculated capacity
-        // DynamicJsonDocument doc(40000);
-
-    
-        // // Add the float arrays to the document
-        // JsonArray arrayX = doc.createNestedArray("x");
-        // //JsonArray arrayY = doc.createNestedArray("y");
-        // //JsonArray arrayZ = doc.createNestedArray("z");
-
-        // //Print first 5 values from bufferX, bufferY and bufferZ
-        // for (size_t i = 0; i < 5; i++) {
-        //     Serial.print(bufferaceleracion.bufferX[i]);
-        //     Serial.print(" ");
-        //     Serial.print(bufferaceleracion.bufferY[i]);
-        //     Serial.print(" ");
-        //     Serial.print(bufferaceleracion.bufferZ[i]);
-        //     Serial.println();
-        // }
-
-        // for (size_t i = 0; i < ARRAY_SIZE; i++) {
-        //     arrayX.add(bufferaceleracion.bufferX[i]);
-        //     //arrayY.add(bufferaceleracion.bufferY[i]);
-        //     //arrayZ.add(bufferaceleracion.bufferZ[i]);
-        // }
-        
-        //   // Serialize the document to a string
-        // String json;
-
-
-        // serializeJson(doc, json);
-
-        // //Print the size of the JSON Object in bytes
-        // Serial.println("Size of the JSON Object: ");
-        // Serial.println(json.length());
-
-
-        // if(mqttClient.publish(mqttTopic1, json.c_str()))
-        // {
-        //         Serial.println("Message published to MQTT topic");
-        // } else {
-        //     Serial.println("Error publishing message to MQTT topic");
-        //     if((!wifiClient.connected())){
-        //     reconnect();
-        //     }
-        // }
 
         sendAxis("esp32/x", "x", bufferaceleracion.bufferX, ARRAY_SIZE);
         sendAxis("esp32/y", "y", bufferaceleracion.bufferY, ARRAY_SIZE);

@@ -55,6 +55,18 @@ struct TimePacket
   byte payload[24]; // Adjust the size as needed
 };
 
+struct THIPacket {
+  byte messageID;
+  byte senderID;
+  byte receiverID;
+  time_t timestamp; // Timestamp
+  float temperature; // Temperature
+  float humidity; // Humidity
+  float yaw; // Yaw
+  float pitch; // Pitch
+  float roll; // Roll
+};
+
 struct timestruct
 {
   int year;
@@ -79,6 +91,7 @@ union PacketUnion
   Packet2 packet2;
   TimePacket timePacket;
   StringPacket stringPacket;
+  THIPacket thipacket;
 };
 
 extern bool transmitFlag;
