@@ -66,11 +66,33 @@ void setup()
 
   // Init and get the time
   /*---------set with NTP---------------*/
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  struct tm timeinfo;
+  //INTENTO
+  struct tm timeinfo = {0}; // Initialize all fields to 0
+  timeinfo.tm_year = 0; // Set the year to 1900
 
-  if (getLocalTime(&timeinfo))
+  // Loop until the year is correct
+  while (timeinfo.tm_year < (2024 - 1900)) { // replace 2022 with the correct year
+    // Configure the time
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+    // Wait for a while before trying again
+    delay(1000); // delay for 1 second
+
+    // Try to get the time again
+    if(!getLocalTime(&timeinfo)){
+      printf("Failed to obtain time\n");
+      return;
+    }
+  }
+
+  //Try this until the year is 2024
+
+  // configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  // struct tm timeinfo;
+
+  if(getLocalTime(&timeinfo))
   {
     rtc.setTimeStruct(timeinfo);
   }
