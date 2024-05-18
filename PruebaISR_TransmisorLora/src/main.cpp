@@ -131,11 +131,10 @@ float *bufferactual;
 // Flag para controlar que tipo de comando se esta enviando
 
 /*
-
-1- Envio de datos de forma inmediata
-2 - Actualizacion de RTC tras inicializacion
+0- comando
+1 - datos
 */
-volatile int comando = 1;
+int data_o_comando = 0;
 
 byte byteArr[1];
 
@@ -300,7 +299,6 @@ int leer_datos(size_t packetSize, byte incomingMsgId, byte sender, byte recipien
   }
 }
 
-int data_o_comando = 0;
 
 void receive_task(void *pvParameter)
 {
@@ -439,116 +437,6 @@ void receive_task(void *pvParameter)
   }
 }
 
-// void receive_task(void *pvParameter){
-//   while(true){
-//     if(transmitFlag != true){
-//         // reset flag
-//       receivedFlag = false;
-
-//       PacketUnion packetUnion;
-
-//       // Packet packet;
-
-//       // you can also read received data as byte array
-//       byte byteArr[131]; //El de mayor tamaño
-//       int numBytes = radio.getPacketLength();
-
-//       if(numBytes == 22){
-//         Serial.println("Se recibio una actualizacion de SmartSensor.");
-//         data_o_comando = 1;
-//       }
-//       else if(numBytes == 131){
-//         Serial.println("Se recibieron datos del SS.");
-//         data_o_comando = 0;
-//       }
-//       else if(numBytes > 131 || numBytes < 22){
-//         Serial.println("Se recibio algo que no es un comando ni una actualizacion de RTC.");
-//         //vTaskSuspend(NULL); // Ignore if it's larger than TimePacket
-//       }
-
-//       Serial.print("Packet length: ");
-//       Serial.println(numBytes);
-//       int state = radio.readData(byteArr, numBytes);
-
-//       if (state == RADIOLIB_ERR_NONE || state == 0) {
-//         // packet was successfully received
-//         Serial.println(F("[SX1278] Paquete recibido!"));
-
-//         contador++;
-
-//           //Es actualizacion del SS
-//           memcpy(&packetUnion.stringPacket, byteArr, sizeof(packetUnion.stringPacket));
-//           if(packetUnion.stringPacket.messageID == 255){
-//             Serial.println("El SS esta activo y listo para recibir RTC...");
-//             transmitFlag = true; //Activo bandera de envio
-//             vTaskResume(xHandle_send_RTC_task);
-
-//         // if(data_o_comando == 1){
-//         //   //Es actualizacion del SS
-//         //   memcpy(&packetUnion.stringPacket, byteArr, sizeof(packetUnion.stringPacket));
-//         //   if(packetUnion.stringPacket.messageID == 255){
-//         //     Serial.println("El SS esta activo y listo para recibir RTC...");
-//         //     transmitFlag = true; //Activo bandera de envio
-//         //     vTaskResume(xHandle_send_RTC_task);
-//         // }
-//         // else{
-//         //   //Son datos
-//         //   memcpy(&packetUnion.packet1, byteArr, sizeof(packetUnion.packet1));
-
-//         //   Serial.print("[SX1278] Message ID: ");
-//         //   Serial.println(packetUnion.packet1.messageID);
-//         //   Serial.print("[SX1278] Sender ID: ");
-//         //   Serial.println(packetUnion.packet1.senderID);
-//         //   Serial.print("[SX1278] Receiver ID: ");
-//         //   Serial.println(packetUnion.packet1.receiverID);
-
-//         //   //print data of the packet
-//         //   Serial.print(F("[SX1278] Payload:\t\t"));
-//         //   //print the byte array
-//         //   for (int i = 0; i < sizeof(packetUnion.packet1.payload); i+=4) {
-//         //     float value = *((float*)(packetUnion.packet1.payload + i));
-//         //     Serial.print(value);
-//         //     Serial.print(F(" "));
-//         //   }
-//         //   Serial.println("");
-
-//         //   int flag = leer_datos(sizeof(packetUnion.packet1.payload), packetUnion.packet1.messageID, packetUnion.packet1.senderID, packetUnion.packet1.receiverID, packetUnion.packet1.payload);
-//         // }
-//       }else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
-//         // packet was received, but is malformed
-//         Serial.println(F("[SX1278] CRC error!"));
-
-//         //EJECUTAR CASO ESPECIAL DE DATA CORRUPTA PARA AUMENTAR CURRENTPOS Y GUARDAR 0s EN BUFFER DE INTERES
-//         if(numBytes == 131){
-//           fillBuffer(bufferactual, NULL, sizeof(packetUnion.packet1.payload), true);
-//         }
-//         else{
-//           Serial.println("[SX1278] La data recibida esta corrupta y no es para este receptor");
-//         }
-
-//         contador_errores++;
-
-//       }else{
-//         // some other error occurred
-//         Serial.print(F("[SX1278] Failed, code "));
-//         Serial.println(state);
-//         contador_errores++;
-//       }
-
-//       // Serial.print(F("[SX1278] Contador: "));
-//       // Serial.println(contador);
-//       Serial.print(F("[SX1278] Contador error: "));
-//       Serial.println(contador_errores);
-
-//       Serial.println("");
-//     }
-//     else{
-//       Serial.println("Se estan enviando datos...");
-//     }
-//     vTaskSuspend(NULL);
-//     }
-//   }
-// }
 
 int sendmessage_radiolib(size_t size_data, byte data[])
 {
@@ -749,14 +637,12 @@ void send_RTC_task(void *pvParameters)
       else
       {
         // some other error occurred
-        Serial.print(F("fallo, coidgo "));
+        Serial.print(F("fallo, codigo "));
         Serial.println(state);
       }
 
       // Delay para permitir que se termine de enviar el paquete, no poner en modo receptor de inmediato
       delay(500);
-
-      comando = 1; // Reinicias comando
 
       transmitFlag = false;
 
@@ -875,24 +761,6 @@ void blink(void *pvParameters)
     delay(1000);
   }
 }
-
-// void printLocalTime()
-// {
-//   struct tm timeinfo;
-//   // Wait until time has been set
-//   int retry = 0;
-//   while (getLocalTime(&timeinfo,3000) == 0 && retry < 10) {
-//       Serial.println("Waiting for time to be set...");
-//       ++retry;
-//       delay(1000);
-//   }
-
-//   if (retry < 10) {
-//       printLocalTime();
-//   } else {
-//       Serial.println("Failed to set time");
-//   }
-// }
 
 void setup_lora(void)
 {

@@ -4,6 +4,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 
 #include <wifi_header.h>
 

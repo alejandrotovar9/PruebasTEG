@@ -30,6 +30,8 @@ int general_count = 0;
 //Contador de iteraciones generales, peticiones hasta ahora
 int iteraciones_peticiones = 0;
 
+bool datacorrupta = false;
+
 BufferACL trama; //Estructura de datos para recibir la trama de aceleracion
 
 //Objeto ESP32Time
@@ -65,6 +67,18 @@ struct StringPacket {
   byte senderID;
   byte receiverID; // Message ID
   char payload[19]; // Message (18 characters for "Smart Sensor Ready" + 1 for the null-terminating character)
+};
+
+struct THIPacket {
+  byte messageID;
+  byte senderID;
+  byte receiverID;
+  time_t timestamp; // Timestamp
+  float temperature; // Temperature
+  float humidity; // Humidity
+  float yaw; // Yaw
+  float pitch; // Pitch
+  float roll; // Roll
 };
 
 struct timestruct{
@@ -103,13 +117,9 @@ bool transmitFlag = false;
 
 //USO DE STATIC EVITA EL REBOOT
 //Fill this arrays with zeros
-static float floatArrayX[(SIZE_OF_FLOAT_ARRAY)]; //Creacion de float array
-static float floatArrayY[(SIZE_OF_FLOAT_ARRAY)];
-static float floatArrayZ[(SIZE_OF_FLOAT_ARRAY)];
-
-// float* floatArrayX;
-// float* floatArrayY;
-// float* floatArrayZ;
+static float floatArrayX[(NUM_DATOS)]; //Creacion de float array
+static float floatArrayY[(NUM_DATOS)];
+static float floatArrayZ[(NUM_DATOS)];
 
 int contador_paquetes_interno = 0;
 float* selectedFloatArray;
@@ -143,10 +153,10 @@ int generararray(int contador_paquetes)
           {
             //Evita el error por MeditationGuru en Core0
             //Copia los datos por partes en vez de completos, evita problemas de reboot
-            for (int i = 0; i < SIZE_OF_FLOAT_ARRAY; i += chunkSize)
+            for (int i = 0; i < NUM_DATOS; i += chunkSize)
             {
                 // Calculate the size of the current chunk
-                int currentChunkSize = min(chunkSize, SIZE_OF_FLOAT_ARRAY - i);
+                int currentChunkSize = min(chunkSize, NUM_DATOS - i);
 
                 // Copy and process the chunk
                 memcpy(floatArrayX + i, trama.bufferX + i, currentChunkSize * sizeof(float));
@@ -178,7 +188,7 @@ int generararray(int contador_paquetes)
     
 
     // Check if the size of floatArray is divisible by CHUNK_SIZE
-    if (SIZE_OF_FLOAT_ARRAY / sizeof(float) % CHUNK_SIZE != 0) {
+    if (NUM_DATOS / sizeof(float) % CHUNK_SIZE != 0) {
         Serial.println("Error: Size of floatArray is not divisible by CHUNK_SIZE");
     }
     // Create an array to hold the chunks
@@ -200,6 +210,58 @@ int generararray(int contador_paquetes)
     contador_paquetes_interno++;
 
     return 1;
+}
+
+//Funcion para enviar temperatura humedad e inclinacion
+int send_thi_radiolib(time_t tstamp, float temp, float hum, float yaw, float pitch, float roll){
+  if(transmitFlag){
+    Serial.print(F("[SX1278] Transmitting T.H.I ... "));
+
+    THIPacket packet; //Creando paquete como estructura Packet
+
+    packet.messageID = 200;
+    packet.senderID = 0x2; // Set your sender ID
+    packet.receiverID = 0x1; // Set the intended receiver ID
+    packet.timestamp = tstamp;
+    packet.temperature = temp;
+    packet.humidity = hum;
+    packet.yaw = yaw;
+    packet.pitch = pitch;
+    packet.roll = roll;
+    //memcpy(packet.payload, data, size_data); // Copy your byte array into the payload
+
+    // Convert the Packet struct to a byte array
+    byte* packetBytes = reinterpret_cast<byte*>(&packet);
+
+    int state = radio.startTransmit(packetBytes, sizeof(packet));
+
+    if (state == RADIOLIB_ERR_NONE) {
+      // the packet was successfully transmitted
+      Serial.println(F(" success!"));
+      return 1;
+
+    } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
+      // the supplied packet was longer than 256 bytes
+      Serial.println(F("too long!"));
+      return 0;
+
+    } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+      // timeout occurred while transmitting packet
+      Serial.println(F("timeout!"));
+      return 0;
+
+    } else {
+      // some other error occurred
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      return 0;
+    }
+    return 1;
+  }
+  else{
+      Serial.println("Data is being received");
+      return 0;
+  }  
 }
 
 //Funcion para enviar mensaje de i'm alive
@@ -248,7 +310,6 @@ int send_imalive_radiolib(size_t size_data, byte data[]) {
   }  
 }
 
-
 int sendmessage_radiolib(size_t size_data, byte data[]) {
   if(transmitFlag){
     Serial.print(F("[SX1278] Transmitting packet ... "));
@@ -257,7 +318,7 @@ int sendmessage_radiolib(size_t size_data, byte data[]) {
 
     packet.messageId = count_radiolib;
 
-    if(count_radiolib < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
+    if(count_radiolib < (((NUM_DATOS * 4))*3 / 128) - 1){
       count_radiolib++;
     }
     else{
@@ -386,27 +447,15 @@ void receive_task(void *pvParameter){
       }
       else{
         Serial.println("Se recibio algo que no es un comando ni una actualizacion de RTC.");
-        vTaskSuspend(NULL); // Ignore if it's larger than TimePacket
+        datacorrupta = true;
+        //vTaskSuspend(NULL); // Ignore if it's larger than TimePacket
       }
-
-      // //Si es un comando se usa esta
-      // Packet2 paquete_received;
-
-      // byte byteArr[4];
-
-      // //A veces causa la excepcion de que el paquete es mayor a 5 bytes
-      // int numBytes = radio.getPacketLength();
-
-      // if(numBytes > 5){
-      //   Serial.println("Se recibio algo que no es un comando.");
-      //   vTaskSuspend(NULL); //Ignorar si es mayor que 5
-      // }
       
       Serial.print("Packet length: ");
       Serial.println(numBytes);
       int state = radio.readData(byteArr, numBytes);
 
-      if(state == RADIOLIB_ERR_NONE){
+      if(state == RADIOLIB_ERR_NONE && datacorrupta == false){
         Serial.println(F("[SX1278] Paquete recibido desde estacion base!"));
 
         //Pointer para apuntar a la estructura escogida
@@ -431,7 +480,11 @@ void receive_task(void *pvParameter){
               updateRTC(packetUnion.timePacket.payload, sizeof(packetUnion.timePacket.payload));
             }
         }
+        else if(comando_o_rtc == 2){
+          continue; //CASO DE PAQUETE NO ESPERADO
+        }
         else{
+          //SE RECIBIO UN COMANDO
             memcpy(&packetUnion.packet2, byteArr, sizeof(packetUnion.packet2));
             paquete_received = &packetUnion.packet2;
 
@@ -444,31 +497,19 @@ void receive_task(void *pvParameter){
 
             if(packetUnion.packet2.payload[0] == 0x01){
               flag_acl = true; //Se requiere paquete de forma inmediata
+              globalTimestamp = getEpochTime();
             }
           //Es un comando
         }
-        //memcpy(&paquete_received, byteArr, sizeof(paquete_received));
-
-        // //Print message ID, sender ID, receiver ID and payload
-        // Serial.print("[SX1278] Message ID: "); //Puede utilizarse para indicar que tipo de comando es el que se envio
-        // Serial.println(paquete_received.messageId);
-        // Serial.print("[SX1278] Sender ID: ");
-        // Serial.println(paquete_received.senderId);
-        // Serial.print("[SX1278] Receiver ID: ");
-        // Serial.println(paquete_received.receiverId);
-
-        // //Print payload
-        // Serial.print("[SX1278] Payload: ");
-        // Serial.print(paquete_received.payload[0], HEX);
-        // Serial.print(" ");
-        // // for(int i = 0; i < sizeof(paquete_received.payload); i++){
-        // //   Serial.print(paquete_received.payload[i], HEX);
-        // //   Serial.print(" ");
-        // // }
-        // Serial.println();
       }
       else if(state == RADIOLIB_ERR_CRC_MISMATCH){
         Serial.println("[SX1278] CRC Error!");
+      }
+      else if (datacorrupta)
+      {
+        // some other error occurred
+        Serial.print(F("[SX1278] Data corrupta..."));
+        datacorrupta = false; ///Reinicio bandera
       }
       else{
         Serial.print("[SX1278] Fallo. Code: ");
@@ -502,6 +543,41 @@ void send_imalive(void){
     transmitFlag = false;
 }
 
+//Funcion para enviar THI
+void send_thi(void){
+    transmitFlag = true;
+
+    BMEData temp_hum;
+    IncData inc;
+
+    if(xQueueReceive(temphumarrayQueue, &temp_hum, portMAX_DELAY)){
+      Serial.println("Se recibio la cola con los datos de temperatura y humedad final");
+    }
+
+    if(xQueueReceive(incarrayQueue, &inc, portMAX_DELAY)){
+      Serial.println("Se recibio la cola con los datos de inclinacion");
+    }
+  
+    //Print all the inpust to the send_thi_radiolib
+    // Serial.println(globalTimestamp);
+    // Serial.println(temp_hum.temperature);
+    // Serial.println(temp_hum.humidity);
+    // Serial.println(inc.IncYaw);
+    // Serial.println(inc.IncPitch);
+    // Serial.println(inc.IncRoll);
+
+    // Send the byte array
+    send_thi_radiolib(globalTimestamp, temp_hum.temperature, temp_hum.humidity, inc.IncYaw, inc.IncPitch, inc.IncRoll);
+    Serial.println("Sending THI package!");
+    Serial.println();
+
+    delay(500);
+
+    //Start listening to packets again
+
+    transmitFlag = false;
+}
+
 //PRUEBA
 void send_packet(void *pvParameters){
   while(1){
@@ -513,24 +589,16 @@ void send_packet(void *pvParameters){
     Serial.print("Contador de paquetes actual antes de entrar en generararray: ");
     Serial.println(contador_paquetes);
 
-    // if(contador_paquetes >= ((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128){
+    // if(contador_paquetes >= ((NUM_DATOS * 4))*3 / 128){
     //   contador_paquetes = 0;
     // }
 
     generararray(contador_paquetes); //Genero el array y mando un chunk, dependiendo del contador
 
     
-    if(contador_paquetes < (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
+    if(contador_paquetes < (((NUM_DATOS * 4))*3 / 128)){
          contador_paquetes++; //Aumento el contador para enviar el siguiente paquete en el proximo envio
     }
-    // else if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128) - 1){
-    //   contador_paquetes = 0; //Reinicio contador de paquetes
-    //   // vTaskResume(xHandle_leerDatosACL); //suspendo adquisicion hasta que se envie todo
-    //   // vTaskResume(xHandle_readBMETask);
-    //   // vTaskResume(xHandle_readMPU9250);
-    //   // vTaskSuspend(NULL);
-    //   //vTaskSuspend(NULL);
-    // }
 
      float floatarray[CHUNK_SIZE];
      byte data[CHUNK_SIZE * sizeof(float)]; //Inicializacion de byte array
@@ -543,15 +611,7 @@ void send_packet(void *pvParameters){
     
     //Convert the float array to a byte array
      memcpy(data, floatarray, sizeof(floatarray)); //CHUNK_SIZE * sizeof(float)
-
-    // Serial.print("Se recibio el siguiente chunk: ");
-    // for(int w= 0; w < CHUNK_SIZE; w++){
-    //       Serial.print(data[w], HEX); // Print each float
-    //       Serial.print(" ");
-    // }
     
-    //printf("Tamaño de la cola: %d", sizeof(data));
-
     size_t size_data;
 
     size_data = sizeof(data);
@@ -565,7 +625,11 @@ void send_packet(void *pvParameters){
     vTaskDelay(interval/portTICK_PERIOD_MS);
 
     //Suspendo esta tarea hasta que se reciba otro mensaje
-    if(contador_paquetes >= (((SIZE_OF_FLOAT_ARRAY * 4))*3 / 128)){
+    if(contador_paquetes >= (((NUM_DATOS * 4))*3 / 128)){
+      
+      promediofinal_inc();
+      promediofinal_temphum();
+      send_thi();
 
       iteraciones_peticiones++;
       Serial.print("Iteraciones: ");

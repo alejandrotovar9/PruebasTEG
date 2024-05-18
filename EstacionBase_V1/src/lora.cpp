@@ -1,6 +1,6 @@
 #include <lora_header.h>
 
-static BufferACL buffer_prueba;
+
 
 // OJO UNO ES 0xFF y el otro 0xbb, para que tengan diferentes identificadores
 byte localAddress = 0xBB; // address of this device
@@ -123,11 +123,11 @@ int leer_datos(size_t packetSize, byte incomingMsgId, byte sender, byte recipien
   if (packetSize == 0)
     return 0; // if there's no packet, return 0
 
-  if (packetSize != expected_length)
-  { // check length for error
-    Serial.println("error: message length does not match expected length");
-    return 1; // skip rest of function
-  }
+  // if (packetSize != expected_length)
+  // { // check length for error
+  //   Serial.println("error: message length does not match expected length");
+  //   //return 1; // skip rest of function
+  // }
 
   // if the recipient isn't this device or broadcast,
   if (recipient != localAddress && recipient != 0xBB)
@@ -159,16 +159,27 @@ int leer_datos(size_t packetSize, byte incomingMsgId, byte sender, byte recipien
     fillBuffer(buffer_prueba.bufferZ, incoming, packetSize, false);
   }
 
-  // Serial.print("Se recibio el siguiente chunk: ");
-  // //CHUNK_SIZE (cantidad de floats) * 4 (tamaño de un float) = 128 floats
-  // for(int w= 0; w < CHUNK_SIZE * 4 ; w += sizeof(float)){
-  //   float value;
-  //   memcpy(&value, &incoming[w], sizeof(float));
-  //   Serial.print(value);
-  //   Serial.print(" ");
+  //   if ((int)incomingMsgId <= 63)
+  // {
+  //   Serial.println("Guardando en bufferX!!!");
+  //   // currentPos = 0;
+  //   bufferactual = buffer_prueba.bufferX;
+  //   fillBuffer(buffer_prueba.bufferX, incoming, packetSize, false);
   // }
-
-  // printf("El valor actual de msgID en int es: %d \n", int(incomingMsgId));
+  // else if ((int)incomingMsgId > 63 && (int)incomingMsgId <= 127)
+  // {
+  //   Serial.println("Guardando en bufferY!!!");
+  //   // currentPos = 0;
+  //   bufferactual = buffer_prueba.bufferY;
+  //   fillBuffer(buffer_prueba.bufferY, incoming, packetSize, false);
+  // }
+  // else if ((int)incomingMsgId > 127 && (int)incomingMsgId <= 191)
+  // {
+  //   Serial.println("Guardando en bufferZ!!!");
+  //   // currentPos = 0;
+  //   bufferactual = buffer_prueba.bufferZ;
+  //   fillBuffer(buffer_prueba.bufferZ, incoming, packetSize, false);
+  // }
 
   if (int(incomingMsgId) < NUM_PAQUETES_ESPERADOS - 1) // Va del 0 al 31
   {
@@ -261,8 +272,8 @@ void receive_task(void *pvParameter)
 
               leer_datos(sizeof(packetUnion.packet1.payload), packetUnion.packet1.messageID, packetUnion.packet1.senderID, packetUnion.packet1.receiverID, packetUnion.packet1.payload);
 
-              //CAMBIAR 95 A NUMDATOS OJOOOOOOOOOOOOOO
-              if(packetUnion.packet1.messageID == 95){
+              //ERA 95
+              if(packetUnion.packet1.messageID == (((NUM_DATOS * 4))*3 / 128) - 1){
                 if(xQueueSend(xQueueBufferACL, &buffer_prueba, portMAX_DELAY)){
                   Serial.println("Se envio la estructura bufferprueba a la cola xQueueBufferACL");
                   //vTaskResume(xHandle_send_mqtt);
@@ -318,6 +329,7 @@ void receive_task(void *pvParameter)
 
               if(packetUnion.thipacket.messageID == 200){
                 if(xQueueSend(xQueueTempHumInc, &packetUnion.thipacket, portMAX_DELAY)){
+                  Serial.println(xPortGetFreeHeapSize());
                   Serial.println("Se envio la estructura THI a la cola");
                   vTaskResume(xHandle_send_mqtt_thi);
                 }
@@ -456,7 +468,7 @@ int sendmessage_radiolib(size_t size_data, byte data[])
   }
 }
 
-void update_timepacket(void)
+void  update_timepacket(void)
 {
   struct tm timeinfo = rtc.getTimeStruct();
   timestruct time_packet;

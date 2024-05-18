@@ -36,3 +36,5 @@ QueueHandle_t incQueue;
 //Handle de la Cola
 QueueHandle_t arrayQueue;
 QueueHandle_t tramaLoRaQueue;
+QueueHandle_t temphumarrayQueue;
+QueueHandle_t incarrayQueue;

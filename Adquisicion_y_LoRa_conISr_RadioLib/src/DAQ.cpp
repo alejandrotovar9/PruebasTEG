@@ -31,6 +31,8 @@ int cont_inc = 0, cont2_inc = 1; //Variables internas de iteracion y posicion de
 //Variables para el Delay Until
 TickType_t xLastWakeTime;
 
+time_t globalTimestamp; // Declare a global variable to store the timestamp
+
 //Banderas para control de tareas
 int flag_limite = 0;
 int flag_temp_hum = 0;
@@ -38,6 +40,12 @@ int flag_inc = 0;
 int flag_time = 0;
 int flag_send_packet = 0;
 bool flag_acl = false;
+
+time_t getEpochTime() {
+    time_t now;
+    time(&now);
+    return now;
+}
 
 int checktime(void){
   struct tm timeinfo = rtc.getTimeStruct();
@@ -97,6 +105,7 @@ void leerDatosACL(void *pvParameters){
         flag_time = checktime();
         if(flag_limite != 0){
           flag_acl == true;
+          globalTimestamp = getEpochTime();
 
           //Se ejecuta una sola vez al evaluar y verificar que es distinto de 0
           Serial.println("Se supero el limite de aceleracion! Tomando datos...");
@@ -117,6 +126,8 @@ void leerDatosACL(void *pvParameters){
           //Activando banderas para registro de temperatura y humedad
           flag_inc = 1;
           flag_temp_hum = 1;
+          globalTimestamp = getEpochTime();
+
 
           //Cambio en el LED de toma de datos
           digitalWrite(LED_EST1, HIGH);
@@ -135,6 +146,7 @@ void leerDatosACL(void *pvParameters){
           //Activando banderas para registro de temperatura y humedad
           flag_inc = 1;
           flag_temp_hum = 1;
+          globalTimestamp = getEpochTime();
 
           //Cambio en el LED de toma de datos
           digitalWrite(LED_EST1, HIGH);
@@ -165,12 +177,12 @@ void leerDatosACL(void *pvParameters){
 }
 
 void mostrar_resultados(void){
-  for(int w = 0; w < 20; w++){
-          printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
-        }
+  // for(int w = 0; w < 20; w++){
+  //       //   printf("Valores de tiempo: %u, X: %f Y: %f Z: %f \n", struct_buffer_acl.buffer_timestamp[w], struct_buffer_acl.bufferX[w], struct_buffer_acl.bufferY[w], struct_buffer_acl.bufferZ[w]);
+  // }
 
-        time_elapsed = (struct_buffer_acl.buffer_timestamp[NUM_DATOS-1] - struct_buffer_acl.buffer_timestamp[0]);
-        printf("Tiempo transcurrido: %d milisegundos \n", time_elapsed);
+        // time_elapsed = (struct_buffer_acl.buffer_timestamp[NUM_DATOS-1] - struct_buffer_acl.buffer_timestamp[0]);
+        // printf("Tiempo transcurrido: %d milisegundos \n", time_elapsed);
 
         Serial.println();
         Serial.println("Buffer de temperatura y humedad");
@@ -206,7 +218,7 @@ void crearBuffer(void *pvParameters){
       if( k <= NUM_DATOS ){
         if(k == 1) tiempo1 = millis();
         //Lleno el buffer de datos
-        struct_buffer_acl.buffer_timestamp[k] = millis();
+        //struct_buffer_acl.buffer_timestamp[k] = millis();
         struct_buffer_acl.bufferX[k] = datos_acl.AclX;
         struct_buffer_acl.bufferY[k] = datos_acl.AclY;
         struct_buffer_acl.bufferZ[k] = datos_acl.AclZ;
@@ -285,7 +297,7 @@ void readBMETask(void *parameter) {
     if(flag_temp_hum){
         if(xQueueSend(data_temphumQueue, &data_readtemp, portMAX_DELAY)){
           //Serial.println("Se envio correctamente la cola de temperatura");
-          vTaskDelay(10 / portTICK_PERIOD_MS); //Este delay permite que las lecturas del sensor sean las correctas
+          vTaskDelay(10 / portTICK_PERIOD_MS);
           vTaskResume(xHandle_receive_temphum); //Reactivo tarea de creacion de buffers y promedios
         }
         else{
@@ -345,6 +357,52 @@ void receive_temphum(void *parameter) {
     };
     
     vTaskSuspend(NULL); //Suspendo esta tarea hasta que se vuelva a activar desde otra
+  }
+}
+
+//Funcion para calcular el valor final de temperatura y humedad a enviar por LoRa
+void promediofinal_temphum(void){
+    //Remove unwanted values from the array
+    BMEData promstruct;
+
+    float finaltemp;
+    float finalhum;
+    float promtemp = 0;
+    float promhum = 0;
+
+    int count_goodtemp = 0;
+    int count_goodhum= 0;
+
+    for(int j = 0; j < 15; j++) {
+          if(estruc_buffer_datos.buffertemp[j] > 18.0){
+            //array_good_temp[j] = estruc_buffer_datos.buffertemp[j];
+            promtemp += estruc_buffer_datos.buffertemp[j];
+            count_goodtemp++;
+          }
+          if(estruc_buffer_datos.bufferhum[j] > 20.0){
+            //array_good_hum[j] = estruc_buffer_datos.bufferhum[j];
+            promhum += estruc_buffer_datos.bufferhum[j];
+            count_goodhum++;
+          }
+    }
+
+  // Serial.println(promtemp);
+  // Serial.println(promhum);
+  // Serial.println(count_goodtemp);
+  // Serial.println(count_goodhum);
+
+  //Calculando promedio de valores buenos
+  finaltemp = promtemp/count_goodtemp;
+  finalhum = promhum/count_goodhum;
+
+  promstruct.temperature = finaltemp;
+  promstruct.humidity = finalhum;
+
+  if(xQueueSend(temphumarrayQueue, &promstruct, portMAX_DELAY)){
+          Serial.println("Se envio correctamente la cola de temperatura promedio");
+  }
+  else{
+          Serial.println("No se envio correctamente la cola de temperatura");
   }
 }
 
@@ -436,6 +494,51 @@ void recInclinacion(void *pvParameters){
   }
 }
 
+//Funcion para calcular el valor final de temperatura y humedad a enviar por LoRa
+void promediofinal_inc(void){
+    //Remove unwanted values from the array
+    IncData promincstruct;
+
+    float finalyaw;
+    float finalpitch;
+    float finalroll;
+    float promyaw = 0;
+    float prompitch = 0;
+    float promroll = 0;
+
+    int count_goodpitch = 0;
+
+    for(int j = 0; j < 15; j++) {
+          if( (estruc_buffer_inclinacion.bufferPitch[j] != 0.0) && (estruc_buffer_inclinacion.bufferRoll[j] != 0.0) && (estruc_buffer_inclinacion.bufferYaw[j] != 0.0) ){
+            promyaw += estruc_buffer_inclinacion.bufferYaw[j];
+            prompitch += estruc_buffer_inclinacion.bufferPitch[j];
+            promroll += estruc_buffer_inclinacion.bufferRoll[j];
+            count_goodpitch++;
+          }
+    }
+
+  // Serial.println(promyaw);
+  // Serial.println(prompitch);
+  // Serial.println(promroll);
+  // Serial.println(count_goodpitch);
+
+  //Calculando promedio de valores buenos
+  finalyaw = promyaw/count_goodpitch;
+  finalpitch = prompitch/count_goodpitch;
+  finalroll = promroll/count_goodpitch;
+
+  promincstruct.IncYaw = finalyaw;
+  promincstruct.IncPitch = finalpitch;
+  promincstruct.IncRoll = finalroll;
+
+  if(xQueueSend(incarrayQueue, &promincstruct, portMAX_DELAY)){
+          Serial.println("Se envio correctamente la cola de inclinacion promedio");
+  }
+  else{
+          Serial.println("No se envio correctamente la cola de inclinacion");
+  }
+}
+
 // Assuming you have the eTaskState enumeration defined somewhere
 const char* TaskStateToString(eTaskState state) {
     switch (state) {
@@ -468,38 +571,33 @@ void blink(void * pvParameters ) {
 /*--------------------------------SETUP FUNCTIONS--------------------------------*/
 void MPU6050Offsets(void) {
   const int numSamples = 1000; // Numero de muestras a tomar para eliminar el offset
-
   float sumX = 0.0, sumY = 0.0, sumZ = 0.0;
   sensors_event_t a_cal, g_cal, tem_cal;
 
-
-  // Initialize the MPU6050
+  //Inicializa el MPU6050 usando el objeto mpu
   mpu.begin();
 
-  // Calibrate the accelerometer offsets
   for (int i = 0; i < numSamples; i++) {
     mpu.getEvent(&a_cal, &g_cal, &tem_cal);
     sumX += a_cal.acceleration.x;
     sumY += a_cal.acceleration.y;
     sumZ += a_cal.acceleration.z;
-    //delay(10); // Adjust the delay based on your requirements
   }
 
-  // Calculate the average offsets
+  //Calculo del offset promedio
   float avgOffsetX = sumX / numSamples;
   float avgOffsetY = sumY / numSamples;
   float avgOffsetZ = sumZ / numSamples;
 
-  //Save in acl_offset
+  //Almacena el offset calculado
   acl_offset[0] = avgOffsetX;
   acl_offset[1] = avgOffsetY;
   acl_offset[2] = avgOffsetZ;
 
-  //Print the average offsets
+  //Muestra el offset promedio por serial
   Serial.print("Average X offset: "); Serial.println(avgOffsetX);
   Serial.print("Average Y offset: "); Serial.println(avgOffsetY);
   Serial.print("Average Z offset: "); Serial.println(avgOffsetZ);
-
 }
 
 void setup_acl_MPU6050(void){
@@ -510,7 +608,7 @@ void setup_acl_MPU6050(void){
   
   Serial.println("Inicializacion del Adafruit MPU6050!");
 
-  //Try to initialize!
+  //Intenta inicializar el sensor
   if (!mpu.begin()) {
     Serial.println("Fallo al encontrar el MPU6050");
     while (1) {

@@ -5,7 +5,9 @@
 //MQTT configuration
 //const char* mqttBroker = "192.168.1.106";
 //const char* mqttBroker = "192.168.113.64";
-const char* mqttBroker = "192.168.205.64";
+const char* mqttBroker = "192.168.62.64";
+//const char* mqttBroker = "192.168.3.113";
+//const char* mqttBroker = "192.168.205.64";
 //const char* mqttBroker = "192.168.20.64"; //TLF
 
 const int mqttPort = 1883;
@@ -15,7 +17,7 @@ const char* mqttTopic1 = "esp32/prueba";
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
-// //Creating a bigger array, with 500 elements
+//Arreglo para guardar los datos de aceleracion del sensor inteligente
 const size_t ARRAY_SIZE = 1024;
 //static float floatArrayX[ARRAY_SIZE];
 // static float floatArrayY[ARRAY_SIZE];
@@ -27,24 +29,24 @@ long lastReconnectAttempt = 0;
 void IRAM_ATTR ISR_MQTT_Request()
 {
   transmitFlag = true;
+  //vTaskSuspend(xHandle_keepalive_task);
   vTaskResume(xHandle_send_task);
 }
 
 
 void reconnect() {
-  // Loop until we're reconnected
   lastReconnectAttempt = 0;
 
   while (!wifiClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.print("Intentando conexion MQTT...");
     // Attempt to connect
     if (mqttClient.connect("clientId")) {
-      Serial.println("connected");
+      Serial.println("Conectado a MQTT broker");
     }else{
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
+      Serial.println(" Intentar otra vez en 5 segundos");
+      //Espera 5 segundos antes de volver a intentar
       vTaskDelay(5000/portTICK_PERIOD_MS);
     }
   }
@@ -61,7 +63,11 @@ void keepalive_task(void *pvParameters) {
         //     }
         // } else {
 
-        mqttClient.publish("test/topic", "Hello, World!");
+        if(mqttClient.publish("test/topic", "Hola mundo!")){
+            Serial.println("Mensaje publiahd a topico test/topic");
+        } else {
+            Serial.println("Error publicando mensaje a topico test/topic");
+        }
         mqttClient.loop();
         vTaskDelay(5000 / portTICK_PERIOD_MS); // Check every 5 seconds
 
@@ -70,7 +76,7 @@ void keepalive_task(void *pvParameters) {
 
 // Step 1: Define the callback function
 void messageReceived(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message received on topic: ");
+  Serial.print("Mensaje recibido en topico: ");
   Serial.println(topic);
 
   // Step 2: Convert payload to string
@@ -99,12 +105,11 @@ void setup_mqtt() {
   // Connect to MQTT broker
   while (!mqttClient.connected()) {
     if (mqttClient.connect("clientId")) {
-      // Connected to MQTT broker
-      Serial.println("Connected to MQTT broker...");
+      Serial.println("Conectado a broker MQTT...");
 
       digitalWrite(22, HIGH);
 
-      mqttClient.publish("test/topic", "Hello, World!");
+      mqttClient.publish("test/topic", "Hola mundo!");
 
       // Step 2: Subscribe to a topic
       if(mqttClient.subscribe("esp32/command")){
@@ -119,7 +124,7 @@ void setup_mqtt() {
 
       break;
     } else {
-      Serial.println("Error connecting to MQTT broker...");
+      Serial.println("Error al conectarse al broker MQTT...");
       //mqttClient.setServer(mqttBroker2, mqttPort); //Intentando con otra IP que suele asignarse a la PC
       //Configurar numero de intentos de reconexion
       delay(1000);
@@ -140,7 +145,7 @@ void setup_mqtt() {
   //mqttClient.setCallback(callback);
 
   //Print the buffer size
-  Serial.println("Buffer size: ");
+  Serial.println("Tamaño del buffer: ");
   Serial.println(mqttClient.getBufferSize());
 
   //vTaskResume(xHandle_keepalive_task);
@@ -172,20 +177,21 @@ void sendInChunks(const String& topic, const String& message) {
     }
 }
 
-void sendTHI(const char* topic, int data){
-    // // Convert the float to a string
-    // char data_str[50];
-    // dtostrf(data, 6, 2, data_str); // 6 is minimum width, 2 is precision; modify as needed
+void sendTHI(const char* topic, float data){
+    //ARREGLAR PARA QUE ENVIE DECIMALES RECIBIDOS, NO ENTEROS
+    //Convierte de float a string
+    char data_str[50];
+    dtostrf(data, 6, 2, data_str); // 6 is minimum width, 2 is precision; modify as needed
 
     // Convert the int to a string
-    char data_str[50];
-    itoa(data, data_str, 10); // 10 is the base for decimal numbers
+    // char data_str[50];
+    // itoa(data, data_str, 10); // 10 is the base for decimal numbers
 
     // Send the string
     if(mqttClient.publish(topic, data_str)) {
-        Serial.println("Message published to MQTT topic");
+        Serial.println("Mensaje publicado en topico MQTT");
     } else {
-        Serial.println("Error publishing message to MQTT topic");
+        Serial.println("Error publicando mensaje en topico MQTT");
     }
 }
 
@@ -197,9 +203,9 @@ void send_mqtt_thi(void *pvParameter){
 
     //Receive float arrays from queue
     if(xQueueReceive(xQueueTempHumInc, &thipacket, portMAX_DELAY)){
-        Serial.println("Received from queue TempInc");
+        Serial.println("Recibido de la cola TempHumInc");
     } else {
-        Serial.println("Error receiving from queue");
+        Serial.println("Error recibiendo de la cola TempHumInc");
     }
 
     delay(200);
@@ -210,7 +216,7 @@ void send_mqtt_thi(void *pvParameter){
     sendTHI("esp32/inc_y", thipacket.yaw);
     sendTHI("esp32/inc_p", thipacket.pitch);
     sendTHI("esp32/inc_r", thipacket.roll);
-    sendTHI("esp32/timestamp", (int)thipacket.timestamp);
+    sendTHI("esp32/timestamp", (float)thipacket.timestamp);
 
     vTaskResume(xHandle_send_mqtt);
     vTaskSuspend(NULL);
@@ -242,16 +248,16 @@ void sendAxis(const char* topic, char* axis, const float* data, size_t dataSize)
 
     
     //Print the size of the JSON Object in bytes
-    Serial.println("Size of the JSON Object: ");
+    Serial.println("Tamaño del objeto JSON: ");
     Serial.println(json.length());
 
     // Send the JSON string in chunks
     //sendInChunks(topic, json);
     if(mqttClient.publish(topic, json.c_str()))
         {
-            Serial.println("Message published to MQTT topic");
+            Serial.println("Mensaje publicado en topico MQTT");
         } else {
-            Serial.println("Error publishing message to MQTT topic");
+            Serial.println("Error publicando mensaje en topico MQTT");
             // if((!wifiClient.connected())){
             // reconnect();
             // }
@@ -269,9 +275,9 @@ void send_mqtt(void *pvParameters){
         
         //Receive float arrays from queue
         if(xQueueReceive(xQueueBufferACL, &bufferaceleracion, portMAX_DELAY)){
-            Serial.println("Received from queue BufferACL");
+            Serial.println("Recibido de la cola BufferACL");
         } else {
-            Serial.println("Error receiving from queue");
+            Serial.println("Error recibiendo de la cola BufferACL");
         }
 
         delay(500);

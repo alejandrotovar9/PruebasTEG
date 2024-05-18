@@ -31,6 +31,8 @@ void setup() {
   bufferQueue = xQueueCreate(3, sizeof(ACLData));
   incQueue = xQueueCreate(1, sizeof(IncData));
   tramaLoRaQueue = xQueueCreate(1, sizeof(BufferACL));
+  temphumarrayQueue = xQueueCreate(1, sizeof(BMEData));
+  incarrayQueue = xQueueCreate(1, sizeof(BufferInclinacion));
 
   //Creacion de las colas de Lora
   arrayQueue = xQueueCreate(1, CHUNK_SIZE * sizeof(float));

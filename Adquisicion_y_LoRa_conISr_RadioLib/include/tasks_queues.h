@@ -32,6 +32,9 @@ extern TaskHandle_t xHandle_poll_modo_operacion;
 extern TaskHandle_t xHandle_receiveTask;
 extern TaskHandle_t xHandle_receive_task;
 
+//Globaltimestamp
+extern time_t globalTimestamp;
+
 
 //Handle de la Colas
 extern QueueHandle_t xQueue;
@@ -42,6 +45,8 @@ extern QueueHandle_t incQueue;
 //Colas Lora
 extern QueueHandle_t arrayQueue;
 extern QueueHandle_t tramaLoRaQueue;
+extern QueueHandle_t temphumarrayQueue;
+extern QueueHandle_t incarrayQueue;
 
 //DECLARACION DE OBJETOS COMO EXTERNS PARA PODER USARLOS EN OTROS ARCHIVOS
 extern Adafruit_BME280 bme;

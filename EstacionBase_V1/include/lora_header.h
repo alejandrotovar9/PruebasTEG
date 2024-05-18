@@ -1,19 +1,17 @@
 #include <tasks_queues.h>
 
-#define SIZE_OF_FLOAT_ARRAY 1024
+//#define SIZE_OF_FLOAT_ARRAY 1024
 #define CHUNK_SIZE 32
 
 #define NUM_DATOS 1024
-#define MEAN_INTERVAL 5
-#define NUM_DATOS_TEMP 200
-#define NUM_DATOS_INC 800
+
 
 // Estructuras de datos
-struct BufferTempHumedad
-{
-  float buffertemp[NUM_DATOS_TEMP / 5 - 1] = {};
-  float bufferhum[NUM_DATOS_TEMP / 5 - 1] = {};
-};
+// struct BufferTempHumedad
+// {
+//   float buffertemp[NUM_DATOS_TEMP / 5 - 1] = {};
+//   float bufferhum[NUM_DATOS_TEMP / 5 - 1] = {};
+// };
 
 // Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL
@@ -24,12 +22,14 @@ struct BufferACL
   float bufferZ[NUM_DATOS] = {};
 };
 
-struct BufferInclinacion
-{
-  float bufferRoll[NUM_DATOS_INC / 5 - 1] = {};
-  float bufferPitch[NUM_DATOS_INC / 5 - 1] = {};
-  float bufferYaw[NUM_DATOS_INC / 5 - 1] = {};
-};
+static BufferACL buffer_prueba;
+
+// struct BufferInclinacion
+// {
+//   float bufferRoll[NUM_DATOS_INC / 5 - 1] = {};
+//   float bufferPitch[NUM_DATOS_INC / 5 - 1] = {};
+//   float bufferYaw[NUM_DATOS_INC / 5 - 1] = {};
+// };
 
 struct Packet
 {

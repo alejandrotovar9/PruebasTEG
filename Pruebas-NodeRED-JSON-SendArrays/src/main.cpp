@@ -228,5 +228,5 @@ for (size_t i = 0; i < ARRAY_SIZE; i++) {
   // }
 
   // Wait for some time before publishing again
-  delay(5000);
+  delay(20000);
 }

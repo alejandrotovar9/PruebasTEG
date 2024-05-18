@@ -21,20 +21,20 @@ Frecuencia de muestreo> f = 1/(0.001*F_SAMPLING)
 #define NUM_DATOS_TEMP 200
 #define NUM_DATOS_INC 800
 
-//Valores limite 15 aceleracion en m/s^2
+//Valores limite aceleracion en m/s^2
 #define LIM_ACLX 2.0
 #define LIM_ACLY 2.0
 #define LIM_ACLZ 2.0
 
 //Estructuras de datos 
 struct BufferTempHumedad{
-  float buffertemp[NUM_DATOS_TEMP/5 - 1] = { };
+  float buffertemp[NUM_DATOS_TEMP/5 - 1] = { }; //39
   float bufferhum[NUM_DATOS_TEMP/5 - 1] = { };
 };
 
 //Estructura que contiene 3 arreglos de 5000 flotantes
 struct BufferACL{
-  long int buffer_timestamp[NUM_DATOS] = {};
+  //long int buffer_timestamp[NUM_DATOS] = {};
   float bufferX[NUM_DATOS] = { };
   float bufferY[NUM_DATOS] = { };
   float bufferZ[NUM_DATOS] = { };
@@ -44,10 +44,6 @@ struct BufferInclinacion{
   float bufferRoll[NUM_DATOS_INC/5 - 1] = { };
   float bufferPitch[NUM_DATOS_INC/5 - 1] = { };
   float bufferYaw[NUM_DATOS_INC/5 - 1] = { };
-};
-
-struct trama_LoRa{
-  float trama_final[3*(NUM_DATOS - 1) + 2 + 2]; //Todos los datos de ACL, 2 de INC y 2 de TEMP
 };
 
 //Estructura de 2 flotantes para temp&hum
@@ -86,3 +82,6 @@ void recInclinacion(void *pvParameters);
 void blink(void *pvParameters);
 void setup_acl_MPU6050();
 void setup_mpu9250();
+void promediofinal_inc(void);
+void promediofinal_temphum(void);
+time_t getEpochTime(void);
